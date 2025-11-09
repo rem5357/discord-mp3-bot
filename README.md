@@ -1,6 +1,6 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.21 | **Build:** 37
+**Version:** 0.21 | **Build:** 38
 
 A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists.
 
@@ -62,6 +62,9 @@ Edit the following constants in `index.js`:
 ## Technical Details
 
 - Uses raw PCM audio (s16le) for maximum reliability
+- 24kHz sample rate (good quality, reduced throughput)
+- Mono audio (50% less data than stereo)
+- 75% data reduction vs. 48kHz stereo (~450 Kbps)
 - Discord.js handles Opus encoding internally
 - 16MB stream buffer to eliminate stuttering
 - 512-entry thread queue for read-ahead buffering

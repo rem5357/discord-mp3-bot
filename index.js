@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.21 | Build: 37
+// Version: 0.21 | Build: 38
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +18,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.21';
-const BUILD = 37;
+const BUILD = 38;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -91,12 +91,14 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-vn',
     // Map audio stream
     '-map', '0:a:0',
-    // Apply volume first, then convert to Discord format
+    // Apply volume first, then convert to efficient format
     '-af', `volume=${volume01}`,
     // Output raw PCM - simplest, most reliable for Discord
     '-f', 's16le',
-    '-ar', '48000',
-    '-ac', '2',
+    // Lower sample rate = less data throughput (still good quality)
+    '-ar', '24000',
+    // Mono instead of stereo = 50% less data
+    '-ac', '1',
     // Read ahead buffer
     '-thread_queue_size', '512'
   ];
