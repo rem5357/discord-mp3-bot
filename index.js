@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.21 | Build: 35
+// Version: 0.21 | Build: 36
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +18,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.21';
-const BUILD = 35;
+const BUILD = 36;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -82,7 +82,7 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-hide_banner',
     '-loglevel', 'warning',
     '-nostdin',
-    // Massive buffers to prevent any stuttering
+    // Large buffers to prevent stuttering
     '-analyzeduration', '0',
     '-probesize', '50M',
     ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
@@ -96,15 +96,10 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-f', 'opus',
     '-ar', '48000',
     '-ac', '2',
-    // Lower bitrate to 96k (Discord's standard max) with VBR
+    // Discord's standard max bitrate with VBR for efficiency
     '-b:a', '96k',
     '-vbr', 'on',
-    // Forward error correction for network resilience
-    '-fec', 'on',
-    '-packet_loss', '15',
-    // Larger frame duration = fewer packets = more stable
-    '-frame_duration', '60',
-    // Optimize for voice/music
+    // Optimize for music playback
     '-application', 'audio',
     '-compression_level', '10'
   ];
