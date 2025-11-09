@@ -1,10 +1,10 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.22 | **Build:** 41
+**Version:** 0.22 | **Build:** 42
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
-## Current Status - Build 41
+## Current Status - Build 42
 
 ### Current Audio Quality Settings
 - **Sample Rate:** 48 kHz (CD quality)
@@ -13,25 +13,28 @@ A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in v
 - **Format:** Raw PCM (s16le)
 - **Bitrate:** ~1536 kbps uncompressed
 - **Discord Encoding:** Opus 128kbps (done by Discord.js after PCM input)
-- **Buffer Size:** 32MB
-- **Pre-buffer Delay:** 500ms
+- **Buffer Size:** 64MB (doubled from 32MB)
+- **Pre-caching:** 8MB of data before playback starts
+- **Discord Latency:** 237ms (user reported - high, consider Linux)
 
-### Build 41 Fixes
-1. **Fixed StreamType mismatch** - Build 40 used wrong stream type (Opus vs OggOpus)
-2. **Reverted to Raw PCM** - Most reliable format, let Discord.js handle Opus encoding
-3. **Fixed /playmp3 command** - Now accepts all audio formats, not just MP3
-4. **Kept optimizations:**
-   - 32MB buffer (massive headroom)
-   - No readrate throttling (FFmpeg reads as fast as possible)
-   - Multi-threading enabled
-   - Stream health monitoring
-   - Pre-buffering delay
+### Build 42 Improvements
+1. **Fixed volume control** - Now works on current track (inline volume enabled)
+2. **Doubled buffer to 64MB** - Better handling of high latency
+3. **Implemented pre-caching** - Buffers 8MB before starting playback
+4. **Removed 500ms delay** - Pre-caching replaces the need for artificial delay
+5. **Better volume handling** - Uses both FFmpeg filter and inline volume
+
+### Platform Considerations
+**Windows vs Linux for Audio Streaming:**
+- **Windows** (current): Higher system overhead, less efficient networking
+- **Linux** (recommended): Better networking stack, lower latency, less overhead
+- With 237ms Discord latency, Linux would likely help significantly
 
 ### Known Issues
-**STUTTERING PROBLEM (ONGOING):**
-- Audio plays with occasional stuttering (1-2 times per song)
-- After stuttering, audio speeds up to "catch up" - classic buffer underrun
-- Build 41 should work now (Build 40 had wrong stream type)
+**LIGHT STUTTERING (IMPROVED):**
+- User reports "much better" but still light stuttering
+- 237ms Discord latency is contributing factor
+- Consider running on Linux for better performance
 
 ### Recommendations for Next Attempts
 1. **Try using @discordjs/opus encoder directly** instead of raw PCM
@@ -181,6 +184,15 @@ node index.js
 - Self-deafens to save bandwidth
 
 ## Version History
+
+### Build 42 (Version 0.22) - 2025-11-08
+**Major buffering improvements and volume fix:**
+- **Fixed volume control** - Now affects current track (enabled inline volume)
+- **64MB buffer** - Doubled from 32MB to handle 237ms latency
+- **Pre-caching system** - Buffers 8MB of data before starting playback
+- **Removed artificial delays** - Pre-caching provides natural buffering
+- **Platform note** - Linux recommended for high-latency scenarios
+- User reports "much better" with only light stuttering remaining
 
 ### Build 41 (Version 0.22) - 2025-11-08
 **Hotfix: StreamType mismatch and PCM revert:**

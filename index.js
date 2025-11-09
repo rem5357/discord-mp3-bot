@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.22 | Build: 41
+// Version: 0.22 | Build: 42
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +18,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.22';
-const BUILD = 41;
+const BUILD = 42;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -86,15 +86,16 @@ function ensureConnection(guild, voiceChannel) {
   return state.connection;
 }
 
-// Build a resource - back to simple PCM but with better buffering
-function makeFfmpegResource(localOrUrl, volume01) {
+// Build a resource with pre-caching and 64MB buffer
+function makeFfmpegResource(localOrUrl, volume01, preCache = true) {
   const isRemote = /^https?:\/\//i.test(localOrUrl);
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: Raw PCM with enhanced buffering`);
+  console.log(`📊 Build ${BUILD}: 64MB buffer + pre-caching`);
   console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
   console.log(`🎯 Quality: 48kHz stereo, 16-bit (CD quality)`);
+  console.log(`🌐 Note: 237ms Discord latency detected - consider Linux for better performance`);
 
   const args = [
     '-hide_banner',
@@ -111,8 +112,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-vn',
     // Map first audio stream
     '-map', '0:a:0',
-    // Apply volume filter
-    '-af', `volume=${volume01}`,
+    // Apply volume filter with proper scaling
+    '-af', `volume=${volume01}:precision=fixed`,
     // Output raw PCM - most reliable format
     '-f', 's16le',
     // 48kHz stereo (Discord requirement for raw PCM)
@@ -130,13 +131,38 @@ function makeFfmpegResource(localOrUrl, volume01) {
     console.error('🔥 FFmpeg error:', err?.message ?? err);
   });
 
-  // Massive 32MB buffer to prevent any underruns
+  // MASSIVE 64MB buffer to handle high latency
   const stream = new PassThrough({
-    highWaterMark: 1 << 25  // 32MB buffer
+    highWaterMark: 1 << 26  // 64MB buffer (doubled from 32MB)
   });
+
+  // Pre-cache data if enabled
+  let cachedChunks = [];
+  let caching = preCache;
+  let cacheSize = 0;
+  const CACHE_TARGET = 8 * 1024 * 1024; // Pre-cache 8MB before starting
+
+  if (preCache) {
+    console.log('🗄️ Pre-caching 8MB of audio data...');
+  }
 
   // Monitor data flow for debugging
   ff.on('data', (chunk) => {
+    if (caching) {
+      cachedChunks.push(chunk);
+      cacheSize += chunk.length;
+
+      if (cacheSize >= CACHE_TARGET) {
+        console.log(`✅ Pre-cached ${(cacheSize / 1024 / 1024).toFixed(1)}MB - starting playback`);
+        caching = false;
+        // Write all cached chunks at once
+        cachedChunks.forEach(c => stream.write(c));
+        cachedChunks = [];
+      }
+    } else {
+      stream.write(chunk);
+    }
+
     bytesRead += chunk.length;
     const now = Date.now();
     if (now - lastReport > 5000) {  // Report every 5 seconds
@@ -147,18 +173,24 @@ function makeFfmpegResource(localOrUrl, volume01) {
     }
   });
 
-  ff.pipe(stream);
-
-  // Clean up FFmpeg process when stream ends
-  stream.on('close', () => {
-    if (!ff.destroyed) ff.destroy();
+  ff.on('end', () => {
+    // Flush any remaining cached data
+    if (caching && cachedChunks.length > 0) {
+      cachedChunks.forEach(c => stream.write(c));
+    }
+    stream.end();
   });
 
   // Use Raw PCM stream type
   const resource = createAudioResource(stream, {
     inputType: StreamType.Raw,
-    inlineVolume: false  // Volume handled by FFmpeg filter
+    inlineVolume: true  // Enable inline volume for real-time control
   });
+
+  // Set initial volume
+  if (resource.volume) {
+    resource.volume.setVolume(volume01);
+  }
 
   // Store FFmpeg reference for cleanup
   resource._ffmpeg = ff;
@@ -195,12 +227,9 @@ function playNext(guildId) {
     const resource = makeFfmpegResource(next.input, state.defaultVolume / 10);
     state.resource = resource;
 
-    // Add a small delay to let the buffer fill before starting playback
-    console.log('⏳ Pre-buffering for 500ms...');
-    setTimeout(() => {
-      state.player.play(resource);
-      console.log('🎵 Playback started');
-    }, 500);
+    // Pre-caching happens inside makeFfmpegResource, so start immediately
+    state.player.play(resource);
+    console.log('🎵 Playback started (pre-cached)');
   } catch (e) {
     console.error('💥 Failed to start track:', e?.message ?? e);
     playNext(guildId);
@@ -288,12 +317,9 @@ client.on('interactionCreate', async interaction => {
       const res = makeFfmpegResource(attachment.url, perTrackVol);
       state.resource = res;
 
-      // Pre-buffer before playing
-      console.log('⏳ Pre-buffering uploaded file...');
-      setTimeout(() => {
-        state.player.play(res);
-        console.log('🎵 Upload playback started');
-      }, 500);
+      // Pre-caching happens inside makeFfmpegResource, so start immediately
+      state.player.play(res);
+      console.log('🎵 Upload playback started');
 
       await interaction.editReply(`Playing **${attachment.name}** in **${vc.name}** at **${Math.round(perTrackVol*10)}/10** volume.`);
     } catch (e) {
@@ -307,6 +333,13 @@ client.on('interactionCreate', async interaction => {
   if (interaction.commandName === 'volume') {
     const level = interaction.options.getInteger('level', true); // 0–10
     state.defaultVolume = level;
+
+    // Apply to current track if playing
+    if (state.resource?.volume) {
+      state.resource.volume.setVolume(level / 10);
+      return interaction.reply({ content: `Volume set to **${level}/10** (current & future tracks).`, flags: 64 });
+    }
+
     return interaction.reply({ content: `Default volume set to **${level}/10** (applies to next track).`, flags: 64 });
   }
 
