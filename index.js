@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.21 | Build: 39
+// Version: 0.22 | Build: 40
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -17,8 +17,8 @@ const {
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 
-const VERSION = '0.21';
-const BUILD = 39;
+const VERSION = '0.22';
+const BUILD = 40;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -29,14 +29,24 @@ const SUPPORTED = new Set(['mp3','wav','ogg','opus','flac','m4a','aac','webm']);
 const guildStates = new Map();
 function getState(guildId) {
   if (!guildStates.has(guildId)) {
-    const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Stop } });
+    // Configure player with better buffering behavior
+    const player = createAudioPlayer({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Stop,
+        maxMissedFrames: 100  // More tolerance for missed frames
+      }
+    });
 
-    // Light state logging (handy for sanity checks)
+    // Enhanced state logging
     let last = player.state.status;
     player.on('stateChange', (oldS, newS) => {
       if (newS.status !== last) {
         console.log(`🎚️ Player: ${oldS.status} -> ${newS.status}`);
         last = newS.status;
+        // Log if we're buffering
+        if (newS.status === AudioPlayerStatus.Buffering) {
+          console.log('⏸️ Buffering detected - potential underrun');
+        }
       }
     });
 
@@ -49,7 +59,12 @@ function getState(guildId) {
     };
 
     player.on(AudioPlayerStatus.Idle, () => { state.resource = null; playNext(guildId); });
-    player.on('error', (err) => { console.error('🎧 Player error:', err?.message ?? err); state.resource = null; playNext(guildId); });
+    player.on('error', (err) => {
+      console.error('🎧 Player error:', err?.message ?? err);
+      console.error('Error details:', err);
+      state.resource = null;
+      playNext(guildId);
+    });
 
     guildStates.set(guildId, state);
   }
@@ -71,48 +86,77 @@ function ensureConnection(guild, voiceChannel) {
   return state.connection;
 }
 
-// Build a resource from a local file OR a URL - simple and reliable PCM approach
+// Build a resource with proper Opus encoding for 128kbps boosted server
 function makeFfmpegResource(localOrUrl, volume01) {
   const isRemote = /^https?:\/\//i.test(localOrUrl);
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
+  console.log(`📊 Build ${BUILD}: Opus 128kbps for boosted server`);
 
+  // Use libopus encoder directly for maximum quality and compatibility
   const args = [
     '-hide_banner',
     '-loglevel', 'warning',
     '-nostdin',
-    // Read at native speed (don't burst)
-    '-readrate', '1.0',
-    // Large read buffer
+    // NO readrate throttling - let FFmpeg read as fast as it can
+    // Large analysis buffers
+    '-analyzeduration', '10M',
     '-probesize', '50M',
-    '-analyzeduration', '0',
+    // Allow FFmpeg to use more threads
+    '-threads', '0',
     ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
     '-i', inputArg,
     // No video
     '-vn',
-    // Map audio stream
+    // Map first audio stream
     '-map', '0:a:0',
-    // Apply volume - simple filter
+    // Apply volume in the filter chain
     '-af', `volume=${volume01}`,
-    // Output raw PCM at Discord's required format
-    '-f', 's16le',
-    // Discord requires exactly 48kHz stereo
+    // Use libopus encoder (not the container format)
+    '-c:a', 'libopus',
+    // 128kbps for boosted server quality
+    '-b:a', '128k',
+    // 48kHz stereo as required by Discord
     '-ar', '48000',
     '-ac', '2',
-    // Read ahead buffer
-    '-thread_queue_size', '1024'
+    // Music application type for better quality
+    '-application', 'audio',
+    // Maximum packet size for lower latency
+    '-packet_loss', '0',
+    '-vbr', 'off',  // Constant bitrate for consistent streaming
+    '-compression_level', '10',
+    // Output format
+    '-f', 'opus'
   ];
 
   const ff = new prism.FFmpeg({ args });
 
-  // Handle FFmpeg errors
+  // Track stream health
+  let bytesRead = 0;
+  let lastReport = Date.now();
+
   ff.on('error', (err) => {
     console.error('🔥 FFmpeg error:', err?.message ?? err);
   });
 
-  // Huge buffer to absorb any hiccups (16 MiB)
-  const stream = new PassThrough({ highWaterMark: 1 << 24 });
+  // Use a larger buffer and track data flow
+  const stream = new PassThrough({
+    highWaterMark: 1 << 25  // 32MB buffer
+  });
+
+  // Monitor data flow for debugging
+  ff.on('data', (chunk) => {
+    bytesRead += chunk.length;
+    const now = Date.now();
+    if (now - lastReport > 5000) {  // Report every 5 seconds
+      const kbps = (bytesRead * 8) / (now - lastReport);
+      console.log(`📈 Stream health: ${Math.round(kbps)} kbps`);
+      bytesRead = 0;
+      lastReport = now;
+    }
+  });
+
   ff.pipe(stream);
 
   // Clean up FFmpeg process when stream ends
@@ -120,9 +164,10 @@ function makeFfmpegResource(localOrUrl, volume01) {
     if (!ff.destroyed) ff.destroy();
   });
 
+  // Use Opus stream type with the libopus output
   const resource = createAudioResource(stream, {
-    inputType: StreamType.Raw,
-    inlineVolume: false  // Volume handled by FFmpeg
+    inputType: StreamType.Opus,
+    inlineVolume: false  // Volume handled by FFmpeg filter
   });
 
   // Store FFmpeg reference for cleanup
@@ -159,7 +204,13 @@ function playNext(guildId) {
   try {
     const resource = makeFfmpegResource(next.input, state.defaultVolume / 10);
     state.resource = resource;
-    state.player.play(resource);
+
+    // Add a small delay to let the buffer fill before starting playback
+    console.log('⏳ Pre-buffering for 500ms...');
+    setTimeout(() => {
+      state.player.play(resource);
+      console.log('🎵 Playback started');
+    }, 500);
   } catch (e) {
     console.error('💥 Failed to start track:', e?.message ?? e);
     playNext(guildId);
@@ -242,7 +293,14 @@ client.on('interactionCreate', async interaction => {
       const perTrackVol = (interaction.options.getInteger('volume', false) ?? state.defaultVolume) / 10;
       const res = makeFfmpegResource(attachment.url, perTrackVol);
       state.resource = res;
-      state.player.play(res);
+
+      // Pre-buffer before playing
+      console.log('⏳ Pre-buffering uploaded file...');
+      setTimeout(() => {
+        state.player.play(res);
+        console.log('🎵 Upload playback started');
+      }, 500);
+
       await interaction.editReply(`Playing **${attachment.name}** in **${vc.name}** at **${Math.round(perTrackVol*10)}/10** volume.`);
     } catch (e) {
       console.error(e);

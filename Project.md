@@ -1,30 +1,30 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.21 | **Build:** 39
+**Version:** 0.22 | **Build:** 40
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
-## Current Status - Build 39
+## Current Status - Build 40
 
 ### Known Issues
-**STUTTERING PROBLEM (ONGOING):**
-- Audio plays with occasional stuttering (1-2 times per song)
-- After stuttering, audio speeds up to "catch up" - classic buffer underrun behavior
-- Issue persists across multiple optimization attempts
-- User playlist: D:\songs1 (local MP3 files)
+**STUTTERING PROBLEM - NEW APPROACH:**
+- Previous issue: Audio stuttering with catch-up speed variations
+- Build 40 takes a completely different approach focused on stream management
 
-### What Has Been Tried (Builds 34-39)
-1. **Opus encoding optimization** (Build 34-36) - Made stuttering worse or caused speed issues
-2. **Raw PCM approach** (Build 37) - Better but still stutters occasionally
-3. **Data reduction attempts** (Build 38) - Caused 10x playback speed (Discord.js requires 48kHz stereo)
-4. **Paced reading** (Build 39) - Current approach with -readrate flag
+### Build 40 Implementation (Major Changes)
+1. **Removed `-readrate 1.0` throttling** - Was limiting FFmpeg's ability to build buffer
+2. **Switched to proper Opus encoding** - Using libopus encoder at 128kbps CBR
+3. **Massive 32MB buffer** - Doubled from 16MB
+4. **Stream health monitoring** - Tracks actual bitrate every 5 seconds
+5. **Pre-buffering delay** - 500ms delay before playback starts
+6. **Enhanced error logging** - Better diagnostics for debugging
+7. **Player tolerance** - Increased maxMissedFrames to 100
 
-### Current Implementation (Build 39)
-- Raw PCM (s16le) at 48kHz stereo (Discord.js requirement)
-- 16MB stream buffer
-- FFmpeg with `-readrate 1.0` pacing
-- 1024-entry thread queue
-- No complex audio filters (just volume)
+### Key Changes from Build 39
+- **Removed throttling**: No more `-readrate` limiting FFmpeg
+- **Proper Opus**: Using libopus encoder with CBR at 128kbps (for boosted server)
+- **Better buffering**: 32MB buffer + 500ms pre-buffer delay
+- **Diagnostics**: Stream health monitoring shows actual bitrate
 
 ### Recommendations for Next Attempts
 1. **Try using @discordjs/opus encoder directly** instead of raw PCM
@@ -174,6 +174,19 @@ node index.js
 - Self-deafens to save bandwidth
 
 ## Version History
+
+### Build 40 (Version 0.22) - 2025-11-08
+**Complete Stream Management Overhaul:**
+- **REMOVED** `-readrate 1.0` throttling (was causing buffer starvation)
+- **Switched to libopus encoder** at 128kbps CBR for boosted servers
+- **32MB buffer** (doubled from 16MB) for massive headroom
+- **Added stream health monitoring** - logs actual bitrate every 5 seconds
+- **500ms pre-buffer delay** - lets stream build up before playback
+- **Increased player tolerance** - maxMissedFrames set to 100
+- **Enhanced diagnostics** - better error logging and buffering detection
+- **Multi-threaded FFmpeg** - removed thread limitations
+- **Larger analysis buffers** - 10M analyzeduration, 50M probesize
+- Focus on **removing bottlenecks** rather than limiting flow
 
 ### Build 39 (Version 0.21) - 2025-11-08
 **Hotfix: Revert to Discord's required format + pacing:**
