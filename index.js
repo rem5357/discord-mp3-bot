@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.21 | Build: 34
+// Version: 0.21 | Build: 35
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +18,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.21';
-const BUILD = 34;
+const BUILD = 35;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -82,9 +82,9 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-hide_banner',
     '-loglevel', 'warning',
     '-nostdin',
-    // Increase buffer sizes to prevent stuttering
+    // Massive buffers to prevent any stuttering
     '-analyzeduration', '0',
-    '-probesize', '32M',
+    '-probesize', '50M',
     ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
     '-i', inputArg,
     '-vn',
@@ -92,12 +92,19 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-map', '0:a:0',
     // Use high-quality resampling with volume filter
     '-af', `volume=${volume01},aresample=resampler=soxr:precision=28:dither_method=triangular`,
-    // Output as Opus (Discord's native format) for better streaming
+    // Output as Opus with optimized settings for Discord
     '-f', 'opus',
     '-ar', '48000',
     '-ac', '2',
-    '-b:a', '128k',
-    // Optimize for low latency
+    // Lower bitrate to 96k (Discord's standard max) with VBR
+    '-b:a', '96k',
+    '-vbr', 'on',
+    // Forward error correction for network resilience
+    '-fec', 'on',
+    '-packet_loss', '15',
+    // Larger frame duration = fewer packets = more stable
+    '-frame_duration', '60',
+    // Optimize for voice/music
     '-application', 'audio',
     '-compression_level', '10'
   ];
@@ -109,8 +116,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
     console.error('🔥 FFmpeg error:', err?.message ?? err);
   });
 
-  // Larger buffer to prevent backpressure (4 MiB)
-  const stream = new PassThrough({ highWaterMark: 1 << 22 });
+  // Even larger buffer to prevent backpressure (8 MiB)
+  const stream = new PassThrough({ highWaterMark: 1 << 23 });
   ff.pipe(stream);
 
   // Clean up FFmpeg process when stream ends

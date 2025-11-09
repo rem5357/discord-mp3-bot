@@ -1,6 +1,6 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.21 | **Build:** 34
+**Version:** 0.21 | **Build:** 35
 
 A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists.
 
@@ -61,8 +61,11 @@ Edit the following constants in `index.js`:
 
 ## Technical Details
 
-- Uses Opus encoding for efficient Discord audio streaming
-- 4MB buffer size to prevent stuttering
+- Uses Opus encoding with VBR for efficient Discord audio streaming
+- 96kbps bitrate (Discord's standard maximum)
+- 8MB buffer size to prevent stuttering
+- 60ms frame duration for stable packet delivery
+- Forward Error Correction (FEC) for network resilience
 - High-precision SoXR audio resampling
 - Automatic FFmpeg process cleanup
 
