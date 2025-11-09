@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.23 | Build: 44
+// Version: 0.24 | Build: 45 - Async pre-buffering + Ogg Opus streaming
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,8 +18,8 @@ const {
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 
-const VERSION = '0.23';
-const BUILD = 44;
+const VERSION = '0.24';
+const BUILD = 45;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -87,118 +87,137 @@ function ensureConnection(guild, voiceChannel) {
   return state.connection;
 }
 
-// Build a resource with pre-caching and 64MB buffer
-function makeFfmpegResource(localOrUrl, volume01, preCache = true) {
+// Build a resource with PROPER async pre-buffering and Ogg Opus streaming
+function makeFfmpegResource(localOrUrl, volume01) {
   const isRemote = /^https?:\/\//i.test(localOrUrl);
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: Ogg Opus streaming + 64MB buffer`);
+  console.log(`📊 Build ${BUILD}: Async pre-buffering + Ogg Opus streaming`);
   console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
   console.log(`🎯 Quality: 48kHz stereo Opus @ 128kbps`);
   console.log(`⚡ Optimization: Native Opus encoding (no PCM transcoding overhead)`);
 
-  const args = [
-    '-hide_banner',
-    '-loglevel', 'warning',
-    '-nostdin',
-    // Large analysis buffers for better format detection
-    '-analyzeduration', '10M',
-    '-probesize', '50M',
-    // Multi-threading for faster decoding
-    '-threads', '0',
-    ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
-    '-i', inputArg,
-    // No video
-    '-vn',
-    // Map first audio stream
-    '-map', '0:a:0',
-    // Apply volume filter with proper scaling
-    '-af', `volume=${volume01}:precision=fixed`,
-    // Output Ogg Opus - native Discord format for best performance
-    '-c:a', 'libopus',
-    '-b:a', '128k',
-    '-f', 'ogg',
-    // 48kHz stereo (Discord requirement)
-    '-ar', '48000',
-    '-ac', '2'
-  ];
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-hide_banner',
+      '-loglevel', 'warning',
+      '-nostdin',
+      // Large analysis buffers for better format detection
+      '-analyzeduration', '10M',
+      '-probesize', '50M',
+      // Multi-threading for faster decoding
+      '-threads', '0',
+      ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
+      '-i', inputArg,
+      // No video
+      '-vn',
+      // Map first audio stream
+      '-map', '0:a:0',
+      // Apply volume filter with proper scaling
+      '-af', `volume=${volume01}:precision=fixed`,
+      // Output Ogg Opus - native Discord format for best performance
+      '-c:a', 'libopus',
+      '-b:a', '128k',
+      '-f', 'ogg',
+      // 48kHz stereo (Discord requirement)
+      '-ar', '48000',
+      '-ac', '2'
+    ];
 
-  const ff = new prism.FFmpeg({ args });
+    const ff = new prism.FFmpeg({ args });
 
-  // Track stream health
-  let bytesRead = 0;
-  let lastReport = Date.now();
+    // Track stream health
+    let bytesRead = 0;
+    let lastReport = Date.now();
 
-  ff.on('error', (err) => {
-    console.error('🔥 FFmpeg error:', err?.message ?? err);
-  });
+    ff.on('error', (err) => {
+      console.error('🔥 FFmpeg error:', err?.message ?? err);
+      reject(err);
+    });
 
-  // MASSIVE 64MB buffer to handle high latency
-  const stream = new PassThrough({
-    highWaterMark: 1 << 26  // 64MB buffer (doubled from 32MB)
-  });
+    // MASSIVE 128MB buffer (doubled from 64MB)
+    const stream = new PassThrough({
+      highWaterMark: 1 << 27  // 128MB buffer
+    });
 
-  // Pre-cache data if enabled
-  let cachedChunks = [];
-  let caching = preCache;
-  let cacheSize = 0;
-  const CACHE_TARGET = 8 * 1024 * 1024; // Pre-cache 8MB before starting
+    // Pre-buffer data before resolving
+    let cachedChunks = [];
+    let cacheSize = 0;
+    const CACHE_TARGET = 16 * 1024 * 1024; // Pre-buffer 16MB before starting
+    let caching = true;
+    let resourceCreated = false;
 
-  if (preCache) {
-    console.log('🗄️ Pre-caching 8MB of audio data...');
-  }
+    console.log('🗄️ Pre-buffering 16MB of Opus data...');
 
-  // Monitor data flow for debugging
-  ff.on('data', (chunk) => {
-    if (caching) {
-      cachedChunks.push(chunk);
-      cacheSize += chunk.length;
+    // Monitor data flow for debugging
+    ff.on('data', (chunk) => {
+      if (caching) {
+        cachedChunks.push(chunk);
+        cacheSize += chunk.length;
 
-      if (cacheSize >= CACHE_TARGET) {
-        console.log(`✅ Pre-cached ${(cacheSize / 1024 / 1024).toFixed(1)}MB - starting playback`);
-        caching = false;
-        // Write all cached chunks at once
-        cachedChunks.forEach(c => stream.write(c));
-        cachedChunks = [];
+        if (cacheSize >= CACHE_TARGET && !resourceCreated) {
+          console.log(`✅ Pre-buffered ${(cacheSize / 1024 / 1024).toFixed(1)}MB - ready for playback`);
+          caching = false;
+          resourceCreated = true;
+
+          // Write all cached chunks at once
+          cachedChunks.forEach(c => stream.write(c));
+          const initialSize = cachedChunks.length;
+          cachedChunks = [];
+
+          // Use Ogg Opus stream type - native Discord format for best performance
+          // NOTE: Inline volume disabled to eliminate performance overhead
+          // Volume control is handled via FFmpeg filter instead
+          const resource = createAudioResource(stream, {
+            inputType: StreamType.OggOpus,
+            inlineVolume: false  // Disabled for performance - use FFmpeg volume filter
+          });
+
+          // Store FFmpeg reference for cleanup
+          resource._ffmpeg = ff;
+
+          console.log(`🎵 Stream has ${initialSize} Opus chunks ready, playback will start smoothly`);
+
+          // Resolve with the resource NOW that buffer is full
+          resolve(resource);
+        }
+      } else {
+        // After pre-buffer, write directly to stream
+        stream.write(chunk);
       }
-    } else {
-      stream.write(chunk);
-    }
 
-    bytesRead += chunk.length;
-    const now = Date.now();
-    if (now - lastReport > 5000) {  // Report every 5 seconds
-      const kbps = (bytesRead * 8) / (now - lastReport);
-      console.log(`📈 Stream health: ${Math.round(kbps)} kbps (target: ~128 kbps for Opus)`);
-      bytesRead = 0;
-      lastReport = now;
-    }
+      bytesRead += chunk.length;
+      const now = Date.now();
+      if (now - lastReport > 5000) {  // Report every 5 seconds
+        const kbps = (bytesRead * 8) / (now - lastReport);
+        console.log(`📈 Stream health: ${Math.round(kbps)} kbps (target: ~128 kbps for Opus)`);
+        bytesRead = 0;
+        lastReport = now;
+      }
+    });
+
+    ff.on('end', () => {
+      // Flush any remaining cached data if we never hit the cache target
+      if (caching && cachedChunks.length > 0 && !resourceCreated) {
+        console.log(`⚠️ File smaller than cache target, using ${(cacheSize / 1024 / 1024).toFixed(1)}MB`);
+        cachedChunks.forEach(c => stream.write(c));
+
+        const resource = createAudioResource(stream, {
+          inputType: StreamType.OggOpus,
+          inlineVolume: false
+        });
+
+        resource._ffmpeg = ff;
+        resourceCreated = true;
+        resolve(resource);
+      }
+      stream.end();
+    });
   });
-
-  ff.on('end', () => {
-    // Flush any remaining cached data
-    if (caching && cachedChunks.length > 0) {
-      cachedChunks.forEach(c => stream.write(c));
-    }
-    stream.end();
-  });
-
-  // Use Ogg Opus stream type - native Discord format for best performance
-  // NOTE: Inline volume disabled to eliminate performance overhead
-  // Volume control is handled via FFmpeg filter instead
-  const resource = createAudioResource(stream, {
-    inputType: StreamType.OggOpus,
-    inlineVolume: false  // Disabled for performance - use FFmpeg volume filter
-  });
-
-  // Store FFmpeg reference for cleanup
-  resource._ffmpeg = ff;
-
-  return resource;
 }
 
-function playNext(guildId) {
+async function playNext(guildId) {
   const state = getState(guildId);
 
   // Clean up previous resource
@@ -224,12 +243,13 @@ function playNext(guildId) {
   }
 
   try {
-    const resource = makeFfmpegResource(next.input, state.defaultVolume / 10);
+    // WAIT for pre-buffering to complete before starting playback
+    const resource = await makeFfmpegResource(next.input, state.defaultVolume / 10);
     state.resource = resource;
 
-    // Pre-caching happens inside makeFfmpegResource, so start immediately
+    // NOW start playback with full buffer
     state.player.play(resource);
-    console.log('🎵 Playback started (pre-cached)');
+    console.log('🎵 Playback started with full pre-buffer!');
   } catch (e) {
     console.error('💥 Failed to start track:', e?.message ?? e);
     playNext(guildId);
@@ -314,12 +334,14 @@ client.on('interactionCreate', async interaction => {
 
     try {
       const perTrackVol = (interaction.options.getInteger('volume', false) ?? state.defaultVolume) / 10;
-      const res = makeFfmpegResource(attachment.url, perTrackVol);
+
+      // WAIT for pre-buffering to complete before starting playback
+      const res = await makeFfmpegResource(attachment.url, perTrackVol);
       state.resource = res;
 
-      // Pre-caching happens inside makeFfmpegResource, so start immediately
+      // NOW start playback with full buffer
       state.player.play(res);
-      console.log('🎵 Upload playback started');
+      console.log('🎵 Upload playback started with full pre-buffer!');
 
       await interaction.editReply(`Playing **${attachment.name}** in **${vc.name}** at **${Math.round(perTrackVol*10)}/10** volume.`);
     } catch (e) {

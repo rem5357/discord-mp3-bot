@@ -1,10 +1,10 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.23 | **Build:** 44
+**Version:** 0.24 | **Build:** 45
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
-## Current Status - Build 44 (Performance Optimization - Ogg Opus)
+## Current Status - Build 45 (Combined Fix: Opus + Async Pre-buffering)
 
 ### Current Audio Quality Settings
 - **Sample Rate:** 48 kHz
@@ -12,8 +12,46 @@ A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in v
 - **Format:** Ogg Opus (native Discord format)
 - **Bitrate:** 128 kbps (Opus compressed)
 - **Encoding:** Single-pass Opus encoding (no PCM intermediate)
-- **Buffer Size:** 64MB
-- **Pre-caching:** 8MB of data before playback starts
+- **Buffer Size:** 128MB (doubled from 64MB in Build 45)
+- **Pre-buffering:** 16MB of Opus data fully loaded before playback starts (async)
+- **Platform:** Tested on Linux with 13ms Discord latency
+
+### Build 45 Status - Combined Optimization (2025-11-09)
+
+**Approach:**
+Build 44's Ogg Opus streaming showed improvement but still had stuttering. Build 45 combines both optimizations:
+
+1. **Ogg Opus streaming** (from Build 44) - 91% throughput reduction
+2. **Proper async pre-buffering** (new) - Guaranteed full buffer before playback starts
+
+**Changes from Build 44:**
+1. ✅ **Converted `makeFfmpegResource()` to async/Promise**
+   - Now returns a Promise that resolves only after buffer is full
+   - Playback doesn't start until 16MB of Opus data is loaded
+
+2. ✅ **Doubled buffer to 128MB** (from 64MB)
+   - More headroom for stream variations
+
+3. ✅ **Updated `playNext()` to async**
+   - Waits for pre-buffering to complete with `await`
+   - Both `/playmp3` and `/playdir` benefit from proper pre-buffering
+
+4. ✅ **Increased pre-buffer target to 16MB** (from 8MB)
+   - More data ready before playback starts
+   - Since Opus is 128 kbps, 16MB = ~2 minutes of audio cached
+
+**Test Results (Linux, 13ms latency):**
+- ✅ **Significant improvement** - Much better than Build 44
+- ⚠️ **Minor stuttering persists** - Occasional light stuttering still occurs
+- ✅ Pre-buffering works correctly (16MB loads before playback)
+- ✅ Stream throughput reduced to ~128 kbps (from 1536 kbps)
+
+**Remaining Issue:**
+Despite 91% throughput reduction and guaranteed full buffer at start, minor stuttering still occurs during continuous playback. This suggests:
+- FFmpeg Opus encoding may still have brief slowdowns
+- Discord.js voice connection may have consumption rate variations
+- Possible GC pauses or other Node.js runtime issues
+- May need to investigate alternatives to FFmpeg streaming
 
 ### Build 44 - Critical Performance Fix (2025-11-09)
 
@@ -64,20 +102,24 @@ After deep research into Discord.js voice optimization, three critical performan
 - With previous 237ms Discord latency, Linux would still help
 
 ### Known Issues
-**Build 42 STUTTERING (SHOULD BE FIXED):**
-- Build 42 had light stuttering due to double-encoding overhead
-- Build 44 should resolve this by eliminating the bottleneck
-- User testing required to confirm fix
+**MINOR STUTTERING (IMPROVED BUT NOT ELIMINATED):**
+- Build 44 (Opus) showed improvement but still had stuttering
+- Build 45 (Opus + async pre-buffering) is **much better** but minor stuttering persists
+- Tested on Linux with excellent 13ms latency
+- Issue is NOT network latency, platform, or initial buffering
+- Likely FFmpeg encode rate variations or Discord.js consumption rate issues
 
 ### Recommendations for Further Optimization (if needed)
 1. ✅ **IMPLEMENTED: Ogg Opus streaming** - Eliminated double-encoding (Build 44)
 2. ✅ **IMPLEMENTED: Disabled inline volume** - Removed performance overhead (Build 44)
-3. **Implement demuxProbe** - Auto-detect pre-encoded Opus files to skip FFmpeg
-4. **Pre-download/cache files** - Eliminate streaming issues for local files
-5. **Voice server region** - Try different Discord voice server regions
-6. **Test on Linux** - Better networking stack and lower latency
-7. **Monitor NetworkingStatus** - Check Discord.js voice connection for network issues
-8. **Simplify volume filter** - If still having issues, remove volume filter entirely
+3. ✅ **IMPLEMENTED: Async pre-buffering** - 16MB buffer guaranteed before playback (Build 45)
+4. ✅ **IMPLEMENTED: Tested on Linux** - Confirmed not platform-related (Build 45)
+5. **Full file pre-caching** - Load entire file to memory, eliminate FFmpeg streaming completely
+6. **Remove volume filter** - Test if FFmpeg volume filter is causing encode slowdowns
+7. **Try discord-player library** - Alternative library with different buffering strategy
+8. **Implement demuxProbe** - Auto-detect pre-encoded Opus files to skip FFmpeg entirely
+9. **Monitor FFmpeg CPU usage** - Check if FFmpeg is maxing out CPU during encodes
+10. **Test with pre-encoded Opus files** - Bypass FFmpeg to isolate if it's the bottleneck
 
 ### Technical Observations
 - User noted that lowering sample rate helped most (Build 37 → 38 attempt)
@@ -475,6 +517,56 @@ echo "net.core.wmem_max=134217728" | sudo tee -a /etc/sysctl.conf
 - Self-deafens to save bandwidth
 
 ## Version History
+
+### Build 45 (Version 0.24) - 2025-11-09
+**Combined Optimization - Opus Streaming + Async Pre-buffering:**
+
+**Problem:**
+Build 44's Ogg Opus streaming showed improvement but still had noticeable stuttering during playback.
+
+**Solution:**
+Combined two optimization approaches:
+1. Keep Ogg Opus streaming (91% throughput reduction)
+2. Add proper async pre-buffering (guarantee full buffer before playback)
+
+**Changes Implemented:**
+1. ✅ **Converted `makeFfmpegResource()` to async/Promise-based**
+   - Function now returns a Promise instead of immediate resource
+   - Promise resolves only after pre-buffer target is reached
+   - Ensures playback never starts with empty buffer
+
+2. ✅ **Increased pre-buffer target to 16MB** (from 8MB)
+   - Since Opus is 128 kbps, 16MB = ~2 minutes of audio pre-cached
+   - Significantly more headroom than before
+
+3. ✅ **Doubled stream buffer to 128MB** (from 64MB)
+   - Massive headroom for any stream variations
+   - Can handle extreme latency spikes
+
+4. ✅ **Updated `playNext()` and `/playmp3` handler to async**
+   - Both functions now properly await the pre-buffering Promise
+   - Playback starts only after `await makeFfmpegResource()` completes
+   - Fixed critical bug where Build 44 started playback before buffer filled
+
+**Test Results (Linux, 13ms latency):**
+- ✅ **Significant improvement** - Much better than Build 44
+- ⚠️ **Minor stuttering persists** - Occasional light stuttering still occurs
+- ✅ Pre-buffering confirmed working (16MB loads before playback)
+- ✅ Stream throughput at target ~128 kbps
+
+**Analysis:**
+Despite combining both optimizations (Opus streaming + async pre-buffering), minor stuttering persists. This indicates:
+- Issue is NOT initial buffering (16MB pre-loaded)
+- Issue is NOT throughput (128 kbps is very low)
+- Issue is NOT platform or latency (tested on Linux with 13ms)
+- **Likely causes:** FFmpeg encode rate variations, Discord.js voice consumption patterns, or Node.js GC pauses
+
+**Next Steps:**
+May need to investigate alternatives to real-time FFmpeg streaming:
+- Full file pre-caching (load entire file to memory)
+- Pre-encoded Opus files (bypass FFmpeg entirely)
+- Alternative audio libraries (discord-player, play-dl)
+- Monitoring FFmpeg CPU usage during playback
 
 ### Build 44 (Version 0.23) - 2025-11-09
 **Critical Performance Fix - Ogg Opus Streaming:**
