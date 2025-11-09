@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.21 | Build: 38
+// Version: 0.21 | Build: 39
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +18,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.21';
-const BUILD = 38;
+const BUILD = 39;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -82,6 +82,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-hide_banner',
     '-loglevel', 'warning',
     '-nostdin',
+    // Read at native speed (don't burst)
+    '-readrate', '1.0',
     // Large read buffer
     '-probesize', '50M',
     '-analyzeduration', '0',
@@ -91,16 +93,15 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-vn',
     // Map audio stream
     '-map', '0:a:0',
-    // Apply volume first, then convert to efficient format
+    // Apply volume - simple filter
     '-af', `volume=${volume01}`,
-    // Output raw PCM - simplest, most reliable for Discord
+    // Output raw PCM at Discord's required format
     '-f', 's16le',
-    // Lower sample rate = less data throughput (still good quality)
-    '-ar', '24000',
-    // Mono instead of stereo = 50% less data
-    '-ac', '1',
+    // Discord requires exactly 48kHz stereo
+    '-ar', '48000',
+    '-ac', '2',
     // Read ahead buffer
-    '-thread_queue_size', '512'
+    '-thread_queue_size', '1024'
   ];
 
   const ff = new prism.FFmpeg({ args });

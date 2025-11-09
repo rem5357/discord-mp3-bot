@@ -1,6 +1,6 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.21 | **Build:** 38
+**Version:** 0.21 | **Build:** 39
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
@@ -135,16 +135,19 @@ node index.js
 
 ## Version History
 
+### Build 39 (Version 0.21) - 2025-11-08
+**Hotfix: Revert to Discord's required format + pacing:**
+- Reverted to 48kHz stereo (Discord.js requirement for raw PCM)
+- Build 38's 24kHz mono caused 10x playback speed
+- Added `-readrate 1.0` to prevent FFmpeg from bursting
+- Doubled thread queue: 512 → 1024 entries
+- Focus on **pacing** instead of format changes
+- Read at native speed to prevent buffer underruns
+
 ### Build 38 (Version 0.21) - 2025-11-08
-**Aggressive Data Reduction: 75% Less Throughput:**
-- Reduced sample rate: 48kHz → 24kHz (50% less data)
-- Switched to mono: stereo → mono (50% less data)
-- Combined reduction: ~1.8 Mbps → ~450 Kbps (75% reduction!)
-- Quality remains good for casual listening
-- Massive throughput reduction should eliminate stuttering
-- **Data rate comparison:**
-  - Build 37: 48kHz stereo = ~1.8 Mbps
-  - Build 38: 24kHz mono = ~450 Kbps
+**Aggressive Data Reduction (REVERTED - caused fast playback):**
+- Attempted 24kHz mono but Discord.js requires 48kHz stereo
+- Caused 10x speed playback issue
 
 ### Build 37 (Version 0.21) - 2025-11-08
 **Back to Basics: Raw PCM for Maximum Reliability:**
