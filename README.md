@@ -15,11 +15,14 @@ A high-quality Discord bot for playing audio files in voice channels, supporting
 
 ## Quick Start
 
+**Note:** Linux is recommended for optimal performance (see [Project.md](Project.md) for detailed Linux setup).
+
 ### Prerequisites
 
 - Node.js (v16 or higher)
 - FFmpeg installed and in system PATH
 - A Discord bot token
+- Build tools (for @discordjs/opus compilation)
 
 ### Installation
 

@@ -4,7 +4,7 @@
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
-## Current Status - Build 42
+## Current Status - Build 42 (Ready for Linux Migration)
 
 ### Current Audio Quality Settings
 - **Sample Rate:** 48 kHz (CD quality)
@@ -135,22 +135,281 @@ Stop playback, clear the queue, and leave the voice channel.
 ## Setup
 
 ### Prerequisites
-- Node.js installed
+- Node.js (v16 or higher)
 - FFmpeg installed and available in system PATH
 - Discord bot created in Discord Developer Portal
 - Bot added to your Discord server
 
-### Configuration
-Create a `.env` file with:
-```
-DISCORD_TOKEN=your_bot_token_here
-DEV_GUILD_ID=your_server_id_here
+### Linux Setup (Recommended for Performance)
+
+#### 1. Install System Dependencies
+
+**Ubuntu/Debian:**
+```bash
+# Update package list
+sudo apt update
+
+# Install Node.js 18.x (recommended)
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install FFmpeg
+sudo apt install -y ffmpeg
+
+# Install build tools for native modules
+sudo apt install -y build-essential python3
 ```
 
-### Installation
+**Fedora/RHEL/CentOS:**
 ```bash
+# Install Node.js
+sudo dnf install -y nodejs npm
+
+# Install FFmpeg
+sudo dnf install -y ffmpeg
+
+# Install build tools
+sudo dnf install -y gcc-c++ make python3
+```
+
+**Arch Linux:**
+```bash
+# Install Node.js and npm
+sudo pacman -S nodejs npm
+
+# Install FFmpeg
+sudo pacman -S ffmpeg
+
+# Install build tools
+sudo pacman -S base-devel python
+```
+
+#### 2. Clone and Setup the Bot
+
+```bash
+# Clone the repository
+git clone https://github.com/rem5357/discord-mp3-bot.git
+cd discord-mp3-bot
+
+# Install npm dependencies
 npm install
+
+# Create .env file
+nano .env
+# Add your Discord token and guild ID:
+# DISCORD_TOKEN=your_bot_token_here
+# DEV_GUILD_ID=your_server_id_here
+```
+
+#### 3. Run the Bot
+
+```bash
+# Run directly
 node index.js
+
+# Or use a process manager like PM2 for production
+npm install -g pm2
+pm2 start index.js --name "BardBot"
+pm2 save
+pm2 startup  # Follow the instructions to enable auto-start
+```
+
+### Windows Setup
+
+#### 1. Install Prerequisites
+
+- Download and install [Node.js](https://nodejs.org/) (LTS version)
+- Download and install [FFmpeg](https://www.ffmpeg.org/download.html)
+- Add FFmpeg to system PATH
+
+#### 2. Setup the Bot
+
+```cmd
+# Clone the repository
+git clone https://github.com/rem5357/discord-mp3-bot.git
+cd discord-mp3-bot
+
+# Install dependencies
+npm install
+
+# Create .env file with your Discord credentials
+# DISCORD_TOKEN=your_bot_token_here
+# DEV_GUILD_ID=your_server_id_here
+
+# Run the bot
+node index.js
+```
+
+## Dependencies Explained
+
+### Core Discord Libraries
+
+**discord.js** (`^14.24.2`)
+- The core Discord API wrapper
+- Handles slash commands, bot login, voice state events, and text replies
+- Think of it as the "operating system" of your bot
+
+**@discordjs/voice** (`^0.19.0`)
+- The voice subsystem that lets bots join voice channels
+- Sends Opus audio packets to Discord's gateway
+- Turns decoded PCM into something Discord can play
+
+**@discordjs/opus** (`^0.10.0`)
+- Native Node binding for the Opus codec
+- Used for voice transmission
+- Without it, you'd get "Cannot find module '@discordjs/opus'" error
+- Requires build tools (gcc/python) on Linux
+
+### Audio Processing
+
+**prism-media** (`^1.3.5`)
+- Small audio toolkit used by @discordjs/voice
+- Spawns and pipes FFmpeg processes
+- Converts PCM to Opus and streams it
+- Bridge between raw audio data and Discord's voice layer
+
+**FFmpeg** (external binary)
+- The real workhorse decoder
+- Converts MP3/WAV/FLAC/etc. into raw PCM audio
+- Not an npm package - must be installed separately
+- prism-media simply calls this executable
+
+### Voice Protocol Support
+
+**@snazzah/davey** (`^0.1.7`)
+- Implements the "DAVE" protocol
+- Used in newest @discordjs/voice versions
+- Replaced older UDP voice transports
+- Required for voice to actually connect
+
+### Configuration
+
+**dotenv** (`^17.2.3`)
+- Loads your .env file
+- Keeps secrets like Discord token and guild ID out of code
+- Essential for security
+
+### Optional Dependencies
+
+**node-opus / opusscript** (not directly installed)
+- Fallback options if @discordjs/opus isn't available
+- prism-media tries: @discordjs/opus → node-opus → opusscript
+- Usually not needed if @discordjs/opus installs correctly
+
+## Why Linux is Recommended
+
+### Performance Benefits
+1. **Better Networking Stack**
+   - Lower latency TCP/IP implementation
+   - More efficient packet handling
+   - Better buffer management
+
+2. **Real-time Scheduling**
+   - Better priority handling for audio threads
+   - Less interrupt latency
+   - More predictable timing
+
+3. **Lower System Overhead**
+   - No Windows audio subsystem delays
+   - Lighter background services
+   - Direct hardware access
+
+4. **FFmpeg Performance**
+   - Native compilation optimizations
+   - Better multi-threading
+   - Lower memory usage
+
+### Expected Improvements on Linux
+- Reduced Discord latency (from 237ms on Windows)
+- Elimination of stuttering issues
+- More stable stream buffering
+- Better CPU utilization
+- Lower memory footprint
+
+## Linux Troubleshooting
+
+### Common Issues
+
+**1. @discordjs/opus fails to build**
+```bash
+# Ensure build tools are installed
+sudo apt install build-essential python3  # Ubuntu/Debian
+sudo dnf install gcc-c++ make python3     # Fedora
+sudo pacman -S base-devel python          # Arch
+
+# Clear npm cache and rebuild
+npm cache clean --force
+npm rebuild @discordjs/opus
+```
+
+**2. FFmpeg not found**
+```bash
+# Verify FFmpeg installation
+ffmpeg -version
+
+# If not found, ensure it's in PATH
+which ffmpeg
+export PATH=$PATH:/usr/bin  # Add to ~/.bashrc for persistence
+```
+
+**3. Permission denied errors**
+```bash
+# Fix npm permissions
+mkdir ~/.npm-global
+npm config set prefix '~/.npm-global'
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**4. Bot crashes on Linux**
+```bash
+# Check for missing libraries
+ldd node_modules/@discordjs/opus/build/Release/opus.node
+
+# Install missing libraries if needed
+sudo apt install libc6  # Usually already installed
+```
+
+**5. High CPU usage on Linux**
+```bash
+# Set nice priority for better performance
+nice -n -10 node index.js
+
+# Or use PM2 with CPU limit
+pm2 start index.js --name "BardBot" --max-memory-restart 1G
+```
+
+### Optimizing for Your Setup
+
+**For your specific case (237ms Discord latency on Windows):**
+
+1. **Test latency on Linux:**
+```bash
+ping -c 10 discord.com
+```
+
+2. **Monitor the bot performance:**
+```bash
+# Watch CPU and memory usage
+htop  # or top
+
+# Monitor network latency
+mtr discord.com
+```
+
+3. **If stuttering persists on Linux:**
+```bash
+# Increase system audio buffer
+sudo sysctl -w net.core.rmem_max=134217728
+sudo sysctl -w net.core.wmem_max=134217728
+echo "net.core.rmem_max=134217728" | sudo tee -a /etc/sysctl.conf
+echo "net.core.wmem_max=134217728" | sudo tee -a /etc/sysctl.conf
+```
+
+4. **Set your music directory path on Linux:**
+```bash
+# Update your playlist path in commands
+/playdir dir:/home/username/music  # Linux path format
 ```
 
 ## Supported Audio Formats
