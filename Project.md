@@ -1,20 +1,139 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.24 | **Build:** 45
+**Version:** 0.30 | **Build:** 48 (Stable Release)
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
-## Current Status - Build 45 (Combined Fix: Opus + Async Pre-buffering)
+---
+
+## 🎊 STABLE RELEASE: Perfect Playback with Volume Control! 🎊
+
+**The Journey:** Builds 34-47 achieved perfect playback through extensive optimization. Build 48 is the **stable release** with all features restored.
+
+**The Solution:**
+- **64kbps Opus encoding** (50% reduction from 128k)
+- **Process priority optimization** (nice -10 for Node.js, -15 for FFmpeg)
+- **Async pre-buffering** (8MB loaded before playback)
+- **Volume control restored** (FFmpeg filter, tested and working)
+
+**Result:** **PERFECT PLAYBACK** with full functionality - No stuttering, adjustable volume, completely smooth audio!
+
+### Quick Start for Perfect Playback:
+```bash
+cd /home/mithroll/Projects/discord-mp3-bot
+sudo nice -n -10 node index.js  # MUST use sudo for process priority!
+```
+
+---
+
+## Current Status - Build 48 (Stable Release - All Features Working)
 
 ### Current Audio Quality Settings
 - **Sample Rate:** 48 kHz
 - **Channels:** Stereo (2 channels)
 - **Format:** Ogg Opus (native Discord format)
-- **Bitrate:** 128 kbps (Opus compressed)
-- **Encoding:** Single-pass Opus encoding (no PCM intermediate)
-- **Buffer Size:** 128MB (doubled from 64MB in Build 45)
-- **Pre-buffering:** 16MB of Opus data fully loaded before playback starts (async)
-- **Platform:** Tested on Linux with 13ms Discord latency
+- **Bitrate:** 64 kbps (Discord's default, optimized for performance)
+- **Encoding:** VBR Opus with 20ms frames (Discord standard)
+- **Buffer Size:** 128MB stream buffer
+- **Pre-buffering:** 8MB of Opus data fully loaded before playback starts (async)
+- **highWaterMark:** 24 (480ms of audio ready, doubled from default 12)
+- **Process Priority:** Nice -10 (Node.js) and -15 (FFmpeg) for real-time performance
+- **Volume Control:** ✅ ENABLED - FFmpeg filter (0-10 scale, affects future tracks)
+- **Platform:** Optimized for Linux with excellent performance
+
+### Build 47 Status - SOLUTION CONFIRMED! (2025-11-09)
+
+## 🎉 **STUTTERING ELIMINATED!** 🎉
+
+**The Critical Missing Piece: Process Priority**
+
+After extensive optimization attempts (Builds 34-46), the final solution was **process priority optimization**. Real-time audio applications REQUIRE high CPU scheduling priority to maintain consistent performance.
+
+**Build 47 Final Solution:**
+1. ✅ **Main Node.js process: nice -10**
+   - Ensures consistent event loop execution
+   - Prevents CPU starvation during high system load
+
+2. ✅ **FFmpeg processes: nice -15**
+   - Highest priority for audio encoding
+   - CRITICAL - ensures FFmpeg never waits for CPU time
+   - This was the key to eliminating encode slowdowns
+
+3. ✅ **Combined with Build 46 optimizations:**
+   - 64kbps bitrate (50% reduction from 128k)
+   - No volume filter (eliminated processing overhead)
+   - VBR mode with 20ms frames (Discord standard)
+   - highWaterMark: 24 (480ms buffer)
+   - 8MB async pre-buffering
+
+**Test Results:**
+- ✅ **NO STUTTERING** - Completely smooth playback
+- ✅ Tested on Linux with 13ms Discord latency
+- ✅ Works with both `/playmp3` and `/playdir`
+- ✅ Consistent performance across entire songs
+
+**Required Setup:**
+```bash
+# MUST run with sudo for process priority:
+sudo nice -n -10 node index.js
+
+# Or:
+sudo node index.js  # Bot sets priority automatically
+```
+
+**Why It Worked:**
+1. **64kbps reduced encoding workload by 50%**
+2. **Process priority guaranteed CPU time**
+3. **FFmpeg never starved for resources**
+4. **Combination eliminated all bottlenecks**
+
+**Lesson Learned:**
+Process priority is ESSENTIAL for real-time audio applications on Linux. Without it, even the best optimizations can fail due to CPU scheduling issues.
+
+### Build 46 Status - Discord Default Bitrate & Maximum Performance (2025-11-09)
+
+**Research Findings:**
+After deep research into Discord.js voice issues and Discord's actual bitrate settings:
+1. **Discord defaults to 64kbps**, not 128kbps - we were encoding at double the necessary rate!
+2. 64kbps is considered optimal for Discord voice channels (balances quality/bandwidth)
+3. Volume filters add significant processing overhead even when not actively changing volume
+4. The `highWaterMark` parameter in createAudioResource can improve buffering stability
+
+**Build 46 Optimizations:**
+1. ✅ **Reduced bitrate to 64k** (Discord's default)
+   - 50% reduction in encoding workload from Build 45
+   - Matches what Discord actually uses for voice channels
+   - Still provides excellent audio quality
+
+2. ✅ **REMOVED volume filter entirely** (for testing)
+   - Eliminates all FFmpeg audio filter processing overhead
+   - Volume commands temporarily disabled
+   - Tests if volume filter was causing encode slowdowns
+
+3. ✅ **Added VBR (Variable Bitrate) mode**
+   - More efficient encoding with better quality/size ratio
+   - Allows encoder to use less bitrate when possible
+
+4. ✅ **Set frame_duration to 20ms**
+   - Discord standard packet timing
+   - More consistent packet delivery
+
+5. ✅ **Added packet_loss tolerance of 1%**
+   - Helps encoder handle minor network issues
+
+6. ✅ **Increased highWaterMark to 24**
+   - Doubled from default 12 (240ms → 480ms of audio ready)
+   - More buffered packets available for playback
+
+7. ✅ **Reduced pre-buffer to 8MB**
+   - Since bitrate is halved, buffer fills faster
+   - Reduces startup delay while maintaining safety margin
+
+**Expected Results:**
+- 50% reduction in encoding workload (64k vs 128k)
+- Elimination of volume filter overhead
+- More consistent packet timing with VBR and frame_duration
+- Better buffer stability with increased highWaterMark
 
 ### Build 45 Status - Combined Optimization (2025-11-09)
 
@@ -102,24 +221,24 @@ After deep research into Discord.js voice optimization, three critical performan
 - With previous 237ms Discord latency, Linux would still help
 
 ### Known Issues
-**MINOR STUTTERING (IMPROVED BUT NOT ELIMINATED):**
-- Build 44 (Opus) showed improvement but still had stuttering
-- Build 45 (Opus + async pre-buffering) is **much better** but minor stuttering persists
-- Tested on Linux with excellent 13ms latency
-- Issue is NOT network latency, platform, or initial buffering
-- Likely FFmpeg encode rate variations or Discord.js consumption rate issues
+**✅ ALL ISSUES RESOLVED - STABLE RELEASE (BUILD 48)**
+- Stuttering completely eliminated in Build 47
+- Volume control restored and tested in Build 48
+- All features working perfectly
+- No known issues remaining
 
-### Recommendations for Further Optimization (if needed)
-1. ✅ **IMPLEMENTED: Ogg Opus streaming** - Eliminated double-encoding (Build 44)
-2. ✅ **IMPLEMENTED: Disabled inline volume** - Removed performance overhead (Build 44)
-3. ✅ **IMPLEMENTED: Async pre-buffering** - 16MB buffer guaranteed before playback (Build 45)
-4. ✅ **IMPLEMENTED: Tested on Linux** - Confirmed not platform-related (Build 45)
-5. **Full file pre-caching** - Load entire file to memory, eliminate FFmpeg streaming completely
-6. **Remove volume filter** - Test if FFmpeg volume filter is causing encode slowdowns
-7. **Try discord-player library** - Alternative library with different buffering strategy
-8. **Implement demuxProbe** - Auto-detect pre-encoded Opus files to skip FFmpeg entirely
-9. **Monitor FFmpeg CPU usage** - Check if FFmpeg is maxing out CPU during encodes
-10. **Test with pre-encoded Opus files** - Bypass FFmpeg to isolate if it's the bottleneck
+**Production Ready:** Bot is fully functional and ready for deployment with perfect playback quality.
+
+### Next Steps (Optional Enhancements)
+Since stuttering is now RESOLVED, these are optional improvements:
+
+1. ✅ **SOLVED: Main stuttering issue** - Fixed with process priority (Build 47)
+2. **Re-enable volume control** - Can add back FFmpeg volume filter if needed
+3. **Implement demuxProbe** - Auto-detect pre-encoded Opus files to skip FFmpeg
+4. **Test even lower bitrates** - 48kbps or 32kbps for bandwidth-limited scenarios
+5. **Add real-time scheduling** - SCHED_FIFO/SCHED_RR for even better performance
+6. **Pre-encode music library** - Convert popular tracks to Opus offline
+7. **Monitor resource usage** - Track CPU/memory during playback for optimization
 
 ### Technical Observations
 - User noted that lowering sample rate helped most (Build 37 → 38 attempt)
@@ -517,6 +636,115 @@ echo "net.core.wmem_max=134217728" | sudo tee -a /etc/sysctl.conf
 - Self-deafens to save bandwidth
 
 ## Version History
+
+### Build 48 (Version 0.30) - 2025-11-09
+**Stable Release - Volume Control and All Features Restored:**
+
+After Build 47 successfully eliminated stuttering, Build 48 restores all features for a complete, production-ready release.
+
+**Changes Implemented:**
+1. ✅ **Volume control re-enabled**
+   - FFmpeg volume filter restored (was disabled in Builds 46-47 for testing)
+   - Volume control confirmed working without performance impact
+   - Adjustable via `/volume` command (0-10 scale)
+   - Affects future tracks only (applied via FFmpeg filter)
+
+2. ✅ **All optimizations retained from Build 47:**
+   - Process priority: Nice -10 (Node.js) and -15 (FFmpeg)
+   - 64kbps Opus bitrate (Discord default)
+   - VBR mode with 20ms frames
+   - 8MB async pre-buffering
+   - highWaterMark: 24
+
+**Testing Confirmed:**
+- ✅ **NO STUTTERING** - Perfect playback maintained
+- ✅ **VOLUME CONTROL WORKING** - No performance degradation
+- ✅ **ALL FEATURES FUNCTIONAL** - Ready for production use
+
+**This is the stable release** - All stuttering issues resolved, all features working, fully tested and ready for deployment.
+
+### Build 47 (Version 0.26) - 2025-11-09
+## 🎉 **FINAL SOLUTION - STUTTERING ELIMINATED!** 🎉
+
+**The Missing Piece: Process Priority**
+After 13 builds of optimization attempts, the critical missing component was **process priority**. Real-time audio applications MUST have high CPU scheduling priority.
+
+**Changes Implemented:**
+1. ✅ **Node.js process set to nice -10**
+   - Ensures consistent event loop execution
+   - Prevents CPU starvation during system load
+
+2. ✅ **FFmpeg processes set to nice -15**
+   - Highest priority for audio encoding
+   - **THIS WAS THE KEY** - FFmpeg never waits for CPU
+   - Eliminated all encode slowdowns
+
+3. ✅ **Combined with Build 46 optimizations:**
+   - 64kbps bitrate (50% reduction from 128k)
+   - No volume filter (removed overhead)
+   - VBR mode, 20ms frames
+   - highWaterMark: 24
+   - 8MB async pre-buffering
+
+**Required Usage:**
+```bash
+# MUST run with sudo for process priority:
+sudo nice -n -10 node index.js
+# or
+sudo node index.js  # Bot sets priority automatically
+```
+
+**CONFIRMED RESULTS:**
+- ✅ **COMPLETELY SMOOTH PLAYBACK**
+- ✅ **NO STUTTERING**
+- ✅ **NO SPEED VARIATIONS**
+- ✅ **TESTED ON LINUX WITH 13ms LATENCY**
+
+**Solution Summary:**
+The stuttering was caused by CPU scheduling issues. Even with all optimizations, FFmpeg would occasionally not get CPU time when needed, causing buffer underruns. Setting high process priority ensures both Node.js and FFmpeg always get CPU time when they need it, eliminating stuttering completely.
+
+### Build 46 (Version 0.25) - 2025-11-09
+**Discord Default Bitrate & Maximum Performance Optimization:**
+
+**Research Breakthrough:**
+Deep research revealed that Discord actually defaults to 64kbps for voice channels, not 128kbps. We were encoding at double the necessary bitrate, causing unnecessary encoding pressure.
+
+**Changes Implemented:**
+1. ✅ **Reduced bitrate to 64kbps** (Discord's actual default)
+   - 50% reduction in encoding workload
+   - Matches Discord's standard voice quality
+   - Significantly reduces FFmpeg encode pressure
+
+2. ✅ **REMOVED volume filter entirely**
+   - Eliminates all audio filter processing overhead
+   - Tests if volume filter was causing encode bottlenecks
+   - Volume control temporarily disabled for testing
+
+3. ✅ **Switched to VBR (Variable Bitrate) mode**
+   - More efficient Opus encoding
+   - Better quality/bitrate ratio
+   - Allows encoder to reduce bitrate when possible
+
+4. ✅ **Added Discord-standard packet timing**
+   - Set frame_duration to 20ms (Discord standard)
+   - Added 1% packet_loss tolerance
+   - More consistent packet delivery
+
+5. ✅ **Increased highWaterMark to 24**
+   - Doubled from default 12 (240ms → 480ms)
+   - More audio packets ready for playback
+   - Improves buffer stability
+
+6. ✅ **Optimized pre-buffer for 64k bitrate**
+   - Reduced from 16MB to 8MB
+   - Faster startup with adequate safety margin
+   - Proportional to the halved bitrate
+
+**Expected Impact:**
+- 50% reduction in encoding workload should significantly reduce stuttering
+- Removal of volume filter eliminates processing overhead
+- VBR mode provides more efficient encoding
+- Better packet timing and buffering for smoother playback
 
 ### Build 45 (Version 0.24) - 2025-11-09
 **Combined Optimization - Opus Streaming + Async Pre-buffering:**

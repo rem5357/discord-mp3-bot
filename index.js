@@ -1,9 +1,21 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.24 | Build: 45 - Async pre-buffering + Ogg Opus streaming
+// Version: 0.30 | Build: 48 - Stable release with volume control restored
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
 const { PassThrough } = require('node:stream');
+const { execSync, spawn } = require('node:child_process');
+
+// Try to set this process to higher priority
+try {
+  if (process.platform === 'linux') {
+    execSync(`renice -n -10 -p ${process.pid}`, { stdio: 'ignore' });
+    console.log('⚡ Process priority set to -10 (higher priority)');
+  }
+} catch (e) {
+  console.log('⚠️ Could not set process priority. Run with sudo for better performance.');
+  console.log('   Try: sudo nice -n -10 node index.js');
+}
 
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const {
@@ -18,8 +30,8 @@ const {
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 
-const VERSION = '0.24';
-const BUILD = 45;
+const VERSION = '0.30';
+const BUILD = 48;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -87,25 +99,25 @@ function ensureConnection(guild, voiceChannel) {
   return state.connection;
 }
 
-// Build a resource with PROPER async pre-buffering and Ogg Opus streaming
+// Build a resource with PROPER async pre-buffering and optimized Opus streaming
 function makeFfmpegResource(localOrUrl, volume01) {
   const isRemote = /^https?:\/\//i.test(localOrUrl);
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: Async pre-buffering + Ogg Opus streaming`);
+  console.log(`📊 Build ${BUILD}: Stable release - Process priority + 64k Opus`);
   console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
-  console.log(`🎯 Quality: 48kHz stereo Opus @ 128kbps`);
-  console.log(`⚡ Optimization: Native Opus encoding (no PCM transcoding overhead)`);
+  console.log(`🎯 Quality: 48kHz stereo Opus @ 64kbps (Discord default)`);
+  console.log(`⚡ Optimization: High process priority, VBR, 20ms frames`);
 
   return new Promise((resolve, reject) => {
     const args = [
       '-hide_banner',
       '-loglevel', 'warning',
       '-nostdin',
-      // Large analysis buffers for better format detection
-      '-analyzeduration', '10M',
-      '-probesize', '50M',
+      // Reduced analysis buffers for faster start
+      '-analyzeduration', '5M',
+      '-probesize', '10M',
       // Multi-threading for faster decoding
       '-threads', '0',
       ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
@@ -114,18 +126,32 @@ function makeFfmpegResource(localOrUrl, volume01) {
       '-vn',
       // Map first audio stream
       '-map', '0:a:0',
-      // Apply volume filter with proper scaling
+      // Volume filter with proper scaling
       '-af', `volume=${volume01}:precision=fixed`,
-      // Output Ogg Opus - native Discord format for best performance
+      // Output Ogg Opus - native Discord format
       '-c:a', 'libopus',
-      '-b:a', '128k',
+      '-b:a', '64k',        // Reduced to Discord's default 64kbps
+      '-vbr', 'on',         // Variable bitrate for better quality/size ratio
+      '-frame_duration', '20', // 20ms frames (Discord standard)
+      '-packet_loss', '1',  // 1% expected packet loss tolerance
       '-f', 'ogg',
       // 48kHz stereo (Discord requirement)
       '-ar', '48000',
       '-ac', '2'
     ];
 
+    // Create FFmpeg process (prism-media will handle the spawning)
     const ff = new prism.FFmpeg({ args });
+
+    // Try to increase FFmpeg process priority on Linux
+    if (process.platform === 'linux' && ff.process && ff.process.pid) {
+      try {
+        execSync(`renice -n -15 -p ${ff.process.pid}`, { stdio: 'ignore' });
+        console.log(`🚀 FFmpeg PID ${ff.process.pid} priority set to -15 (high priority)`);
+      } catch (e) {
+        // Silent fail - priority optimization is optional
+      }
+    }
 
     // Track stream health
     let bytesRead = 0;
@@ -144,11 +170,11 @@ function makeFfmpegResource(localOrUrl, volume01) {
     // Pre-buffer data before resolving
     let cachedChunks = [];
     let cacheSize = 0;
-    const CACHE_TARGET = 16 * 1024 * 1024; // Pre-buffer 16MB before starting
+    const CACHE_TARGET = 8 * 1024 * 1024; // Pre-buffer 8MB before starting (reduced for 64k bitrate)
     let caching = true;
     let resourceCreated = false;
 
-    console.log('🗄️ Pre-buffering 16MB of Opus data...');
+    console.log('🗄️ Pre-buffering 8MB of Opus data (64k bitrate)...');
 
     // Monitor data flow for debugging
     ff.on('data', (chunk) => {
@@ -168,10 +194,10 @@ function makeFfmpegResource(localOrUrl, volume01) {
 
           // Use Ogg Opus stream type - native Discord format for best performance
           // NOTE: Inline volume disabled to eliminate performance overhead
-          // Volume control is handled via FFmpeg filter instead
           const resource = createAudioResource(stream, {
             inputType: StreamType.OggOpus,
-            inlineVolume: false  // Disabled for performance - use FFmpeg volume filter
+            inlineVolume: false,  // Disabled for performance
+            highWaterMark: 24     // Increased from default 12 (480ms of audio ready)
           });
 
           // Store FFmpeg reference for cleanup
@@ -191,7 +217,7 @@ function makeFfmpegResource(localOrUrl, volume01) {
       const now = Date.now();
       if (now - lastReport > 5000) {  // Report every 5 seconds
         const kbps = (bytesRead * 8) / (now - lastReport);
-        console.log(`📈 Stream health: ${Math.round(kbps)} kbps (target: ~128 kbps for Opus)`);
+        console.log(`📈 Stream health: ${Math.round(kbps)} kbps (target: ~64 kbps for Opus)`);
         bytesRead = 0;
         lastReport = now;
       }
@@ -205,7 +231,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
 
         const resource = createAudioResource(stream, {
           inputType: StreamType.OggOpus,
-          inlineVolume: false
+          inlineVolume: false,
+          highWaterMark: 24     // Increased from default 12 (480ms of audio ready)
         });
 
         resource._ffmpeg = ff;
@@ -356,8 +383,7 @@ client.on('interactionCreate', async interaction => {
     const level = interaction.options.getInteger('level', true); // 0–10
     state.defaultVolume = level;
 
-    // NOTE: Inline volume disabled for performance in Build 44
-    // Volume changes only affect future tracks (applied via FFmpeg filter)
+    // Volume is applied via FFmpeg filter (affects future tracks only)
     return interaction.reply({ content: `Default volume set to **${level}/10** (applies to next track).`, flags: 64 });
   }
 
