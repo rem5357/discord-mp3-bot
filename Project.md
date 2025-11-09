@@ -4,19 +4,59 @@
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
+## Current Status - Build 39
+
+### Known Issues
+**STUTTERING PROBLEM (ONGOING):**
+- Audio plays with occasional stuttering (1-2 times per song)
+- After stuttering, audio speeds up to "catch up" - classic buffer underrun behavior
+- Issue persists across multiple optimization attempts
+- User playlist: D:\songs1 (local MP3 files)
+
+### What Has Been Tried (Builds 34-39)
+1. **Opus encoding optimization** (Build 34-36) - Made stuttering worse or caused speed issues
+2. **Raw PCM approach** (Build 37) - Better but still stutters occasionally
+3. **Data reduction attempts** (Build 38) - Caused 10x playback speed (Discord.js requires 48kHz stereo)
+4. **Paced reading** (Build 39) - Current approach with -readrate flag
+
+### Current Implementation (Build 39)
+- Raw PCM (s16le) at 48kHz stereo (Discord.js requirement)
+- 16MB stream buffer
+- FFmpeg with `-readrate 1.0` pacing
+- 1024-entry thread queue
+- No complex audio filters (just volume)
+
+### Recommendations for Next Attempts
+1. **Try using @discordjs/opus encoder directly** instead of raw PCM
+2. **Pre-download/cache files** before playback to eliminate streaming issues
+3. **Investigate Discord voice connection settings** - try different voice server regions
+4. **Check system resources** during playback (CPU, memory, network)
+5. **Try alternative audio libraries** like discord-player or play-dl
+6. **Add artificial delay before starting playback** to pre-buffer more data
+7. **Simplify further** - remove volume filter, test with minimal FFmpeg args
+8. **Test with different file formats** to isolate if it's format-specific
+9. **Monitor FFmpeg output** for warnings/errors during playback
+10. **Check Discord.js voice connection NetworkingStatus** for network issues
+
+### Technical Observations
+- User noted that lowering sample rate helped most (Build 37 → 38 attempt)
+- Suggests the issue is **throughput/bandwidth related**
+- Buffer underruns indicate data isn't arriving fast enough
+- May be network quality, Discord voice server, or local system resource issue
+- Current 48kHz stereo @ 16-bit = ~1.536 Mbps raw PCM throughput
+
 ## Features
 
 ### Audio Playback
 - Play audio files directly from Discord uploads
 - Queue and play entire directories of audio files as playlists
 - Support for multiple audio formats: MP3, WAV, OGG, Opus, FLAC, M4A, AAC, WebM
-- High-quality audio resampling using SoXR (Sample Rate Converter)
-- Smooth playback without stuttering or speed variations
+- **Known Issue:** Occasional stuttering with catch-up speed variations (under investigation)
 
 ### Volume Control
 - Adjustable volume (0-10 scale)
 - Per-track volume override for individual files
-- Default volume setting that persists across tracks
+- Default volume setting that persists across tracks (volume applied via FFmpeg filter)
 
 ### Queue Management
 - Automatic queue progression (plays next track when current finishes)
@@ -186,4 +226,54 @@ node index.js
 - Proper FFmpeg process cleanup when switching tracks
 - Resource cleanup on stop/skip commands
 
-These improvements ensure smooth, consistent playback without stuttering or pitch/speed variations.
+These improvements were attempts to ensure smooth playback, but stuttering issue persists.
+
+## Development Journey Summary (Builds 34-39)
+
+### The Problem
+User reported stuttering during playback with "catch-up" speed variations - a classic buffer underrun issue where audio playback pauses, then speeds up to resync with where it should be.
+
+### Attempted Solutions & Results
+
+**Build 34 - Opus Encoding:**
+- Tried switching from raw PCM to Opus encoding (Discord's native format)
+- Added SoXR resampling and volume filters
+- Result: Improved somewhat but still had issues
+
+**Build 35 - Advanced Opus Settings:**
+- Added FEC (Forward Error Correction), frame duration, packet loss tolerance
+- Result: Caused fast-forward playback (incompatible parameters)
+
+**Build 36 - Conservative Opus:**
+- Removed problematic parameters, kept VBR and 96k bitrate
+- Result: More frequent stuttering than before
+
+**Build 37 - Back to Raw PCM:**
+- Abandoned Opus encoding, returned to raw PCM
+- 16MB buffer, simplified pipeline
+- Result: Better, but still occasional stuttering
+
+**Build 38 - Data Reduction:**
+- User observation: lowering sample rate helped most
+- Tried 24kHz mono (75% data reduction)
+- Result: 10x playback speed (Discord.js requires 48kHz stereo for raw PCM)
+
+**Build 39 - Paced Reading:**
+- Reverted to 48kHz stereo
+- Added `-readrate 1.0` to pace FFmpeg
+- Doubled thread queue to 1024
+- Result: Currently being tested
+
+### Key Learnings
+1. **Discord.js has strict format requirements** - Raw PCM must be 48kHz stereo s16le
+2. **Opus encoding added overhead** - Made stuttering worse, not better
+3. **Buffer underruns are throughput-related** - User noted sample rate reduction helped
+4. **Simple is better** - Complex audio filters and encoding created more problems
+5. **The issue is persistent** - Suggests underlying network, system, or Discord voice server issue
+
+### What We Know
+- Local files from D:\songs1 (eliminates network download issues)
+- Stuttering happens 1-2 times per song
+- Speed-up after stutter = classic buffer underrun
+- Large buffers (16MB) and pacing haven't fully solved it
+- May need to investigate non-FFmpeg solutions or pre-caching
