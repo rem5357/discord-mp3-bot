@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.22 | Build: 40
+// Version: 0.22 | Build: 41
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +18,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.22';
-const BUILD = 40;
+const BUILD = 41;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -86,24 +86,24 @@ function ensureConnection(guild, voiceChannel) {
   return state.connection;
 }
 
-// Build a resource with proper Opus encoding for 128kbps boosted server
+// Build a resource - back to simple PCM but with better buffering
 function makeFfmpegResource(localOrUrl, volume01) {
   const isRemote = /^https?:\/\//i.test(localOrUrl);
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: Opus 128kbps for boosted server`);
+  console.log(`📊 Build ${BUILD}: Raw PCM with enhanced buffering`);
+  console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
+  console.log(`🎯 Quality: 48kHz stereo, 16-bit (CD quality)`);
 
-  // Use libopus encoder directly for maximum quality and compatibility
   const args = [
     '-hide_banner',
     '-loglevel', 'warning',
     '-nostdin',
-    // NO readrate throttling - let FFmpeg read as fast as it can
-    // Large analysis buffers
+    // Large analysis buffers for better format detection
     '-analyzeduration', '10M',
     '-probesize', '50M',
-    // Allow FFmpeg to use more threads
+    // Multi-threading for faster decoding
     '-threads', '0',
     ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
     '-i', inputArg,
@@ -111,23 +111,13 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-vn',
     // Map first audio stream
     '-map', '0:a:0',
-    // Apply volume in the filter chain
+    // Apply volume filter
     '-af', `volume=${volume01}`,
-    // Use libopus encoder (not the container format)
-    '-c:a', 'libopus',
-    // 128kbps for boosted server quality
-    '-b:a', '128k',
-    // 48kHz stereo as required by Discord
+    // Output raw PCM - most reliable format
+    '-f', 's16le',
+    // 48kHz stereo (Discord requirement for raw PCM)
     '-ar', '48000',
-    '-ac', '2',
-    // Music application type for better quality
-    '-application', 'audio',
-    // Maximum packet size for lower latency
-    '-packet_loss', '0',
-    '-vbr', 'off',  // Constant bitrate for consistent streaming
-    '-compression_level', '10',
-    // Output format
-    '-f', 'opus'
+    '-ac', '2'
   ];
 
   const ff = new prism.FFmpeg({ args });
@@ -140,7 +130,7 @@ function makeFfmpegResource(localOrUrl, volume01) {
     console.error('🔥 FFmpeg error:', err?.message ?? err);
   });
 
-  // Use a larger buffer and track data flow
+  // Massive 32MB buffer to prevent any underruns
   const stream = new PassThrough({
     highWaterMark: 1 << 25  // 32MB buffer
   });
@@ -151,7 +141,7 @@ function makeFfmpegResource(localOrUrl, volume01) {
     const now = Date.now();
     if (now - lastReport > 5000) {  // Report every 5 seconds
       const kbps = (bytesRead * 8) / (now - lastReport);
-      console.log(`📈 Stream health: ${Math.round(kbps)} kbps`);
+      console.log(`📈 Stream health: ${Math.round(kbps)} kbps (should be ~1536 kbps for raw PCM)`);
       bytesRead = 0;
       lastReport = now;
     }
@@ -164,9 +154,9 @@ function makeFfmpegResource(localOrUrl, volume01) {
     if (!ff.destroyed) ff.destroy();
   });
 
-  // Use Opus stream type with the libopus output
+  // Use Raw PCM stream type
   const resource = createAudioResource(stream, {
-    inputType: StreamType.Opus,
+    inputType: StreamType.Raw,
     inlineVolume: false  // Volume handled by FFmpeg filter
   });
 
@@ -225,9 +215,9 @@ const client = new Client({
 // /playmp3 file:<attachment> [volume]
 const playCmd = new SlashCommandBuilder()
   .setName('playmp3')
-  .setDescription('Play an uploaded MP3 in your current voice channel.')
+  .setDescription('Play an uploaded audio file in your current voice channel.')
   .addAttachmentOption(opt =>
-    opt.setName('file').setDescription('An MP3 file to play').setRequired(true)
+    opt.setName('file').setDescription('An audio file to play (MP3, WAV, FLAC, etc.)').setRequired(true)
   )
   .addIntegerOption(opt =>
     opt.setName('volume').setDescription('Volume 0–10 (this track only)').setMinValue(0).setMaxValue(10)
@@ -278,8 +268,12 @@ client.on('interactionCreate', async interaction => {
     const vc = member?.voice?.channel;
     if (!vc) return interaction.reply({ content: 'Join a voice channel first.', flags: 64 });
 
-    const isMp3 = (attachment.contentType?.includes('audio/mpeg')) || attachment.name.toLowerCase().endsWith('.mp3');
-    if (!isMp3) return interaction.reply({ content: 'Please upload a valid **.mp3** file.', flags: 64 });
+    // More flexible audio file checking
+    const fileName = attachment.name.toLowerCase();
+    const isAudio = attachment.contentType?.includes('audio/') ||
+                    SUPPORTED.has(fileName.split('.').pop());
+
+    if (!isAudio) return interaction.reply({ content: 'Please upload a valid audio file (MP3, WAV, FLAC, etc.)', flags: 64 });
 
     await interaction.deferReply({ flags: 64 });
     ensureConnection(interaction.guild, vc);

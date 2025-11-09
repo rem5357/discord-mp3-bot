@@ -1,30 +1,37 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.22 | **Build:** 40
+**Version:** 0.22 | **Build:** 41
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
-## Current Status - Build 40
+## Current Status - Build 41
+
+### Current Audio Quality Settings
+- **Sample Rate:** 48 kHz (CD quality)
+- **Channels:** Stereo (2 channels)
+- **Bit Depth:** 16-bit
+- **Format:** Raw PCM (s16le)
+- **Bitrate:** ~1536 kbps uncompressed
+- **Discord Encoding:** Opus 128kbps (done by Discord.js after PCM input)
+- **Buffer Size:** 32MB
+- **Pre-buffer Delay:** 500ms
+
+### Build 41 Fixes
+1. **Fixed StreamType mismatch** - Build 40 used wrong stream type (Opus vs OggOpus)
+2. **Reverted to Raw PCM** - Most reliable format, let Discord.js handle Opus encoding
+3. **Fixed /playmp3 command** - Now accepts all audio formats, not just MP3
+4. **Kept optimizations:**
+   - 32MB buffer (massive headroom)
+   - No readrate throttling (FFmpeg reads as fast as possible)
+   - Multi-threading enabled
+   - Stream health monitoring
+   - Pre-buffering delay
 
 ### Known Issues
-**STUTTERING PROBLEM - NEW APPROACH:**
-- Previous issue: Audio stuttering with catch-up speed variations
-- Build 40 takes a completely different approach focused on stream management
-
-### Build 40 Implementation (Major Changes)
-1. **Removed `-readrate 1.0` throttling** - Was limiting FFmpeg's ability to build buffer
-2. **Switched to proper Opus encoding** - Using libopus encoder at 128kbps CBR
-3. **Massive 32MB buffer** - Doubled from 16MB
-4. **Stream health monitoring** - Tracks actual bitrate every 5 seconds
-5. **Pre-buffering delay** - 500ms delay before playback starts
-6. **Enhanced error logging** - Better diagnostics for debugging
-7. **Player tolerance** - Increased maxMissedFrames to 100
-
-### Key Changes from Build 39
-- **Removed throttling**: No more `-readrate` limiting FFmpeg
-- **Proper Opus**: Using libopus encoder with CBR at 128kbps (for boosted server)
-- **Better buffering**: 32MB buffer + 500ms pre-buffer delay
-- **Diagnostics**: Stream health monitoring shows actual bitrate
+**STUTTERING PROBLEM (ONGOING):**
+- Audio plays with occasional stuttering (1-2 times per song)
+- After stuttering, audio speeds up to "catch up" - classic buffer underrun
+- Build 41 should work now (Build 40 had wrong stream type)
 
 ### Recommendations for Next Attempts
 1. **Try using @discordjs/opus encoder directly** instead of raw PCM
@@ -175,8 +182,17 @@ node index.js
 
 ## Version History
 
+### Build 41 (Version 0.22) - 2025-11-08
+**Hotfix: StreamType mismatch and PCM revert:**
+- **Fixed critical bug** - Build 40 used StreamType.Opus with Ogg container (should be OggOpus)
+- **Reverted to Raw PCM** - More reliable than Opus encoding attempts
+- **Fixed /playmp3** - Now accepts all audio formats (MP3, WAV, FLAC, etc.)
+- **Quality settings**: 48kHz stereo 16-bit PCM (~1536 kbps raw)
+- **Discord handles Opus encoding** at 128kbps after receiving PCM
+- Kept all buffering improvements from Build 40
+
 ### Build 40 (Version 0.22) - 2025-11-08
-**Complete Stream Management Overhaul:**
+**Complete Stream Management Overhaul (HAD BUG - see Build 41):**
 - **REMOVED** `-readrate 1.0` throttling (was causing buffer starvation)
 - **Switched to libopus encoder** at 128kbps CBR for boosted servers
 - **32MB buffer** (doubled from 16MB) for massive headroom
