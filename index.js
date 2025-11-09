@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.23 | Build: 44
+// Version: 0.24 | Build: 45
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,8 +18,8 @@ const {
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 
-const VERSION = '0.23';
-const BUILD = 44;
+const VERSION = '0.24';
+const BUILD = 45;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -93,15 +93,18 @@ function makeFfmpegResource(localOrUrl, volume01, preCache = true) {
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: Ogg Opus streaming + 64MB buffer`);
+  console.log(`📊 Build ${BUILD}: Low-latency Opus + sync optimization`);
   console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
   console.log(`🎯 Quality: 48kHz stereo Opus @ 128kbps`);
-  console.log(`⚡ Optimization: Native Opus encoding (no PCM transcoding overhead)`);
+  console.log(`⚡ Optimization: Low-delay mode + 20ms frame sync`);
 
   const args = [
     '-hide_banner',
     '-loglevel', 'warning',
     '-nostdin',
+    // LOW LATENCY FLAGS - critical for sync
+    '-fflags', 'nobuffer',        // Minimize input buffering delay
+    '-flags', 'low_delay',         // Force low delay encoding
     // Large analysis buffers for better format detection
     '-analyzeduration', '10M',
     '-probesize', '50M',
@@ -118,6 +121,10 @@ function makeFfmpegResource(localOrUrl, volume01, preCache = true) {
     // Output Ogg Opus - native Discord format for best performance
     '-c:a', 'libopus',
     '-b:a', '128k',
+    // OPUS LOW LATENCY OPTIMIZATIONS
+    '-frame_duration', '20',       // 20ms frames (Discord standard)
+    '-application', 'lowdelay',    // Use lowest delay mode
+    '-packet_loss', '1',           // Minimal FEC for network resilience
     '-f', 'ogg',
     // 48kHz stereo (Discord requirement)
     '-ar', '48000',

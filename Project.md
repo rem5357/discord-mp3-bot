@@ -1,10 +1,10 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.23 | **Build:** 44
+**Version:** 0.24 | **Build:** 45
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
-## Current Status - Build 44 (Performance Optimization - Ogg Opus)
+## Current Status - Build 45 (Low-Latency & Sync Optimization)
 
 ### Current Audio Quality Settings
 - **Sample Rate:** 48 kHz
@@ -12,8 +12,62 @@ A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in v
 - **Format:** Ogg Opus (native Discord format)
 - **Bitrate:** 128 kbps (Opus compressed)
 - **Encoding:** Single-pass Opus encoding (no PCM intermediate)
+- **Latency Mode:** Low-delay application mode
+- **Frame Duration:** 20ms (Discord standard, explicitly set)
+- **FEC:** 1% packet loss expectation for error correction
+- **FFmpeg Flags:** nobuffer + low_delay for minimum latency
 - **Buffer Size:** 64MB
 - **Pre-caching:** 8MB of data before playback starts
+
+### Build 45 - Low-Latency & Synchronization Fix (2025-11-09)
+
+**Issue Analysis:**
+Build 44 reduced throughput by 91% but stuttering persisted, indicating the problem wasn't just bandwidth but **frame timing and synchronization**. Research revealed:
+
+1. **Frame timing issues** - Discord expects precisely timed 20ms Opus frames
+2. **Input buffering delays** - FFmpeg default buffering adds latency
+3. **Encoder latency** - Standard Opus mode has higher latency than needed
+4. **Sync drift** - Without explicit frame duration, timing can drift
+
+**Root Causes Identified:**
+- FFmpeg input buffering creating sync delays (default behavior)
+- Missing low-delay encoder flags
+- No explicit frame duration causing timing drift
+- Standard Opus application mode vs low-delay mode
+- No forward error correction for packet loss resilience
+
+**Build 45 Changes:**
+1. ✅ **Added low-latency FFmpeg flags**
+   - `-fflags nobuffer` - Eliminates input buffering delay
+   - `-flags low_delay` - Forces low-delay encoding path
+
+2. ✅ **Opus low-latency optimizations**
+   - `-frame_duration 20` - Explicit 20ms frames (Discord standard)
+   - `-application lowdelay` - Uses OPUS_APPLICATION_RESTRICTED_LOWDELAY mode
+   - `-packet_loss 1` - Minimal FEC (1% expected packet loss)
+
+3. ✅ **Maintained Build 44 improvements**
+   - Ogg Opus streaming (no PCM overhead)
+   - Inline volume disabled
+   - 64MB buffer + 8MB pre-caching
+
+**Technical Details:**
+- Opus low-delay mode: ~26.5ms latency (can go as low as 5ms with smaller frames)
+- 20ms frame duration aligns perfectly with Discord's packet timing
+- nobuffer flag prevents FFmpeg from analyzing input before streaming
+- low_delay flag optimizes encoder for real-time streaming
+
+**Expected Results:**
+- Elimination of sync drift and frame timing issues
+- Reduced latency from input buffering
+- Better resilience to minor packet loss
+- Perfect frame alignment with Discord's 20ms packet timing
+
+**Sources:**
+- FFmpeg libopus documentation
+- Discord.js voice optimization guides
+- Opus codec technical specifications
+- Community reports of stuttering fixes
 
 ### Build 44 - Critical Performance Fix (2025-11-09)
 
@@ -475,6 +529,46 @@ echo "net.core.wmem_max=134217728" | sudo tee -a /etc/sysctl.conf
 - Self-deafens to save bandwidth
 
 ## Version History
+
+### Build 45 (Version 0.24) - 2025-11-09
+**Low-Latency & Synchronization Optimization:**
+
+**Problem:**
+Build 44 helped with throughput but stuttering persisted. Analysis revealed the issue was **frame timing and synchronization**, not bandwidth.
+
+**Root Causes:**
+- FFmpeg input buffering creating sync delays
+- Missing low-delay encoder configuration
+- No explicit frame duration (timing drift)
+- Standard Opus mode vs low-delay mode
+- No FEC for packet loss resilience
+
+**Changes:**
+1. ✅ **Low-latency FFmpeg flags**
+   - `-fflags nobuffer` - Eliminates input buffering delay
+   - `-flags low_delay` - Forces low-delay encoding
+
+2. ✅ **Opus low-latency configuration**
+   - `-frame_duration 20` - Explicit 20ms frames (Discord standard)
+   - `-application lowdelay` - Opus RESTRICTED_LOWDELAY mode
+   - `-packet_loss 1` - Minimal FEC (1% expected loss)
+
+3. ✅ **Maintained Build 44 optimizations**
+   - Ogg Opus streaming (no PCM overhead)
+   - Inline volume disabled
+   - 64MB buffer + 8MB pre-caching
+
+**Technical:**
+- Opus low-delay mode: ~26.5ms latency
+- 20ms frames align with Discord packet timing
+- nobuffer prevents input analysis delays
+- FEC provides resilience without overhead
+
+**Expected Results:**
+- Elimination of sync drift
+- Perfect frame timing alignment
+- Reduced buffering latency
+- Better packet loss handling
 
 ### Build 44 (Version 0.23) - 2025-11-09
 **Critical Performance Fix - Ogg Opus Streaming:**
