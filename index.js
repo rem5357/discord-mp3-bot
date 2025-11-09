@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.21 | Build: 36
+// Version: 0.21 | Build: 37
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +18,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.21';
-const BUILD = 36;
+const BUILD = 37;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -71,7 +71,7 @@ function ensureConnection(guild, voiceChannel) {
   return state.connection;
 }
 
-// Build a resource from a local file OR a URL, with ultra-smooth playback
+// Build a resource from a local file OR a URL - simple and reliable PCM approach
 function makeFfmpegResource(localOrUrl, volume01) {
   const isRemote = /^https?:\/\//i.test(localOrUrl);
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
@@ -82,26 +82,23 @@ function makeFfmpegResource(localOrUrl, volume01) {
     '-hide_banner',
     '-loglevel', 'warning',
     '-nostdin',
-    // Large buffers to prevent stuttering
-    '-analyzeduration', '0',
+    // Large read buffer
     '-probesize', '50M',
+    '-analyzeduration', '0',
     ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
     '-i', inputArg,
+    // No video
     '-vn',
-    // Map first audio stream
+    // Map audio stream
     '-map', '0:a:0',
-    // Use high-quality resampling with volume filter
-    '-af', `volume=${volume01},aresample=resampler=soxr:precision=28:dither_method=triangular`,
-    // Output as Opus with optimized settings for Discord
-    '-f', 'opus',
+    // Apply volume first, then convert to Discord format
+    '-af', `volume=${volume01}`,
+    // Output raw PCM - simplest, most reliable for Discord
+    '-f', 's16le',
     '-ar', '48000',
     '-ac', '2',
-    // Discord's standard max bitrate with VBR for efficiency
-    '-b:a', '96k',
-    '-vbr', 'on',
-    // Optimize for music playback
-    '-application', 'audio',
-    '-compression_level', '10'
+    // Read ahead buffer
+    '-thread_queue_size', '512'
   ];
 
   const ff = new prism.FFmpeg({ args });
@@ -111,8 +108,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
     console.error('🔥 FFmpeg error:', err?.message ?? err);
   });
 
-  // Even larger buffer to prevent backpressure (8 MiB)
-  const stream = new PassThrough({ highWaterMark: 1 << 23 });
+  // Huge buffer to absorb any hiccups (16 MiB)
+  const stream = new PassThrough({ highWaterMark: 1 << 24 });
   ff.pipe(stream);
 
   // Clean up FFmpeg process when stream ends
@@ -121,8 +118,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
   });
 
   const resource = createAudioResource(stream, {
-    inputType: StreamType.OggOpus,
-    inlineVolume: false  // Volume handled by FFmpeg filter
+    inputType: StreamType.Raw,
+    inlineVolume: false  // Volume handled by FFmpeg
   });
 
   // Store FFmpeg reference for cleanup

@@ -1,6 +1,6 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.21 | **Build:** 36
+**Version:** 0.21 | **Build:** 37
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
@@ -135,16 +135,24 @@ node index.js
 
 ## Version History
 
+### Build 37 (Version 0.21) - 2025-11-08
+**Back to Basics: Raw PCM for Maximum Reliability:**
+- Switched from Opus encoding back to raw PCM (s16le)
+- Opus encoding overhead was causing more frequent stuttering
+- Massive 16MB stream buffer (doubled from 8MB)
+- Simplified audio pipeline: decode → volume → PCM output
+- Added thread queue size parameter for read-ahead buffering
+- Let Discord.js handle the Opus encoding internally (more reliable)
+- Simpler = more stable
+
 ### Build 36 (Version 0.21) - 2025-11-08
 **Hotfix: Removed problematic Opus settings:**
 - Removed `-frame_duration`, `-fec`, and `-packet_loss` parameters that caused fast-forward playback
-- Kept the good optimizations: 96k bitrate, VBR, 8MB buffer, 50MB probe
-- Conservative approach focusing on buffer sizes and bitrate optimization
+- Still experienced more frequent stuttering
 
 ### Build 35 (Version 0.21) - 2025-11-08
 **Anti-Stutter Optimization (REVERTED):**
 - Attempted advanced Opus settings but caused playback speed issues
-- Some parameters were incompatible with the encoding pipeline
 
 ### Build 34 (Version 0.21) - 2025-11-08
 **Major Audio Engine Overhaul:**
