@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.22 | Build: 42
+// Version: 0.23 | Build: 44
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -13,12 +13,13 @@ const {
   NoSubscriberBehavior,
   AudioPlayerStatus,
   getVoiceConnection,
-  StreamType
+  StreamType,
+  demuxProbe
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 
-const VERSION = '0.22';
-const BUILD = 42;
+const VERSION = '0.23';
+const BUILD = 44;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -92,10 +93,10 @@ function makeFfmpegResource(localOrUrl, volume01, preCache = true) {
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: 64MB buffer + pre-caching`);
+  console.log(`📊 Build ${BUILD}: Ogg Opus streaming + 64MB buffer`);
   console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
-  console.log(`🎯 Quality: 48kHz stereo, 16-bit (CD quality)`);
-  console.log(`🌐 Note: 237ms Discord latency detected - consider Linux for better performance`);
+  console.log(`🎯 Quality: 48kHz stereo Opus @ 128kbps`);
+  console.log(`⚡ Optimization: Native Opus encoding (no PCM transcoding overhead)`);
 
   const args = [
     '-hide_banner',
@@ -114,9 +115,11 @@ function makeFfmpegResource(localOrUrl, volume01, preCache = true) {
     '-map', '0:a:0',
     // Apply volume filter with proper scaling
     '-af', `volume=${volume01}:precision=fixed`,
-    // Output raw PCM - most reliable format
-    '-f', 's16le',
-    // 48kHz stereo (Discord requirement for raw PCM)
+    // Output Ogg Opus - native Discord format for best performance
+    '-c:a', 'libopus',
+    '-b:a', '128k',
+    '-f', 'ogg',
+    // 48kHz stereo (Discord requirement)
     '-ar', '48000',
     '-ac', '2'
   ];
@@ -167,7 +170,7 @@ function makeFfmpegResource(localOrUrl, volume01, preCache = true) {
     const now = Date.now();
     if (now - lastReport > 5000) {  // Report every 5 seconds
       const kbps = (bytesRead * 8) / (now - lastReport);
-      console.log(`📈 Stream health: ${Math.round(kbps)} kbps (should be ~1536 kbps for raw PCM)`);
+      console.log(`📈 Stream health: ${Math.round(kbps)} kbps (target: ~128 kbps for Opus)`);
       bytesRead = 0;
       lastReport = now;
     }
@@ -181,16 +184,13 @@ function makeFfmpegResource(localOrUrl, volume01, preCache = true) {
     stream.end();
   });
 
-  // Use Raw PCM stream type
+  // Use Ogg Opus stream type - native Discord format for best performance
+  // NOTE: Inline volume disabled to eliminate performance overhead
+  // Volume control is handled via FFmpeg filter instead
   const resource = createAudioResource(stream, {
-    inputType: StreamType.Raw,
-    inlineVolume: true  // Enable inline volume for real-time control
+    inputType: StreamType.OggOpus,
+    inlineVolume: false  // Disabled for performance - use FFmpeg volume filter
   });
-
-  // Set initial volume
-  if (resource.volume) {
-    resource.volume.setVolume(volume01);
-  }
 
   // Store FFmpeg reference for cleanup
   resource._ffmpeg = ff;
@@ -334,12 +334,8 @@ client.on('interactionCreate', async interaction => {
     const level = interaction.options.getInteger('level', true); // 0–10
     state.defaultVolume = level;
 
-    // Apply to current track if playing
-    if (state.resource?.volume) {
-      state.resource.volume.setVolume(level / 10);
-      return interaction.reply({ content: `Volume set to **${level}/10** (current & future tracks).`, flags: 64 });
-    }
-
+    // NOTE: Inline volume disabled for performance in Build 44
+    // Volume changes only affect future tracks (applied via FFmpeg filter)
     return interaction.reply({ content: `Default volume set to **${level}/10** (applies to next track).`, flags: 64 });
   }
 
