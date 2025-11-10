@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.30 | Build: 49 - M3U playlist support with shuffle
+// Version: 0.30 | Build: 50 - Fixed FFmpeg priority setting
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -185,14 +185,19 @@ function makeFfmpegResource(localOrUrl, volume01) {
     const ff = new prism.FFmpeg({ args });
 
     // Try to increase FFmpeg process priority on Linux
-    if (process.platform === 'linux' && ff.process && ff.process.pid) {
-      try {
-        execSync(`renice -n -15 -p ${ff.process.pid}`, { stdio: 'ignore' });
-        console.log(`🚀 FFmpeg PID ${ff.process.pid} priority set to -15 (high priority)`);
-      } catch (e) {
-        // Silent fail - priority optimization is optional
+    // Must wait a tiny bit for process to spawn
+    setTimeout(() => {
+      if (process.platform === 'linux' && ff.process && ff.process.pid) {
+        try {
+          execSync(`renice -n -15 -p ${ff.process.pid}`, { stdio: 'ignore' });
+          console.log(`🚀 FFmpeg PID ${ff.process.pid} priority set to -15 (high priority)`);
+        } catch (e) {
+          console.warn(`⚠️ Failed to set FFmpeg priority: ${e.message}`);
+        }
+      } else if (process.platform === 'linux') {
+        console.warn(`⚠️ FFmpeg process not available for priority setting (process: ${!!ff.process}, pid: ${ff.process?.pid})`);
       }
-    }
+    }, 50);
 
     // Track stream health
     let bytesRead = 0;

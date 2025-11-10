@@ -1,6 +1,6 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.30 | **Build:** 49 - M3U Playlist Support ✅
+**Version:** 0.30 | **Build:** 50 - Testing FFmpeg Priority Fix ⚠️
 
 A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists. **Perfect playback with full volume control!**
 

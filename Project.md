@@ -1,32 +1,39 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.30 | **Build:** 48 (Stable Release)
+**Version:** 0.30 | **Build:** 50 (Testing FFmpeg Priority Fix)
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
 ---
 
-## 🎊 STABLE RELEASE: Perfect Playback with Volume Control! 🎊
+## ⚠️ CURRENT STATUS: Build 50 - Debugging Stuttering Regression
 
-**The Journey:** Builds 34-47 achieved perfect playback through extensive optimization. Build 48 is the **stable release** with all features restored.
+**Issue Detected (2025-11-09):**
+After Build 49 (M3U playlist support), user reported stuttering and static-distortion returning during playback. Investigation revealed potential FFmpeg priority issue.
 
-**The Solution:**
-- **64kbps Opus encoding** (50% reduction from 128k)
-- **Process priority optimization** (nice -10 for Node.js, -15 for FFmpeg)
-- **Async pre-buffering** (8MB loaded before playback)
-- **Volume control restored** (FFmpeg filter, tested and working)
+**Root Cause Analysis:**
+Build 48's FFmpeg priority setting code attempted to set process priority immediately after creating the FFmpeg object, but the process may not have been fully spawned yet. Errors were silently ignored, meaning FFmpeg may have been running at normal priority instead of nice -15.
 
-**Result:** **PERFECT PLAYBACK** with full functionality - No stuttering, adjustable volume, completely smooth audio!
+**Build 50 Fix:**
+- Added 50ms delay before setting FFmpeg priority (allows process to spawn)
+- Removed silent error handling - now logs warnings if priority setting fails
+- Added diagnostics to show why priority might not be set
+- Testing required to confirm fix
 
-### Quick Start for Perfect Playback:
+### Quick Start for Testing:
 ```bash
 cd /home/mithroll/Projects/discord-mp3-bot
 sudo nice -n -10 node index.js  # MUST use sudo for process priority!
 ```
 
+Watch console output for:
+- `🚀 FFmpeg PID xxxxx priority set to -15 (high priority)` ← Good!
+- `⚠️ Failed to set FFmpeg priority: ...` ← Shows actual error
+- `⚠️ FFmpeg process not available...` ← Process didn't spawn in time
+
 ---
 
-## Current Status - Build 48 (Stable Release - All Features Working)
+## Previous Stable Release - Build 48
 
 ### Current Audio Quality Settings
 - **Sample Rate:** 48 kHz
@@ -636,6 +643,80 @@ echo "net.core.wmem_max=134217728" | sudo tee -a /etc/sysctl.conf
 - Self-deafens to save bandwidth
 
 ## Version History
+
+### Build 50 (Version 0.30) - 2025-11-09
+**FFmpeg Priority Fix - Debugging Stuttering Regression:**
+
+**Problem Identified:**
+User reported stuttering and static-distortion returning during playback at volumes 1-2. Issue started in first file ~30 seconds in, worse in second file.
+
+**Investigation Findings:**
+1. Node.js process running correctly with nice -10 priority ✅
+2. All audio settings correct (64kbps Opus, VBR, buffers) ✅
+3. Files are local (not network/Samba) - on NVMe drive ✅
+4. FFmpeg priority setting code had timing issue ⚠️
+
+**Root Cause:**
+Build 48's code attempted to set FFmpeg process priority (nice -15) immediately after creating the FFmpeg object. However, the process may not be fully spawned yet. Errors were silently caught and ignored, so we had no visibility into whether priority was actually being set.
+
+**Changes Implemented:**
+1. ✅ **Added 50ms setTimeout delay** before attempting to set FFmpeg priority
+   - Gives the process time to spawn before we try to renice it
+   - Previous code may have been trying to renice before PID existed
+
+2. ✅ **Removed silent error handling**
+   - Changed from silent catch to `console.warn()` with error message
+   - Now logs actual error if priority setting fails
+
+3. ✅ **Added diagnostic logging**
+   - Logs warning if FFmpeg process or PID not available
+   - Shows exactly why priority might not be set
+   - Helps identify if problem is timing, permissions, or something else
+
+**Testing Status:**
+⏳ Pending user testing with detailed console output monitoring
+
+**Expected Outcome:**
+If FFmpeg was running at normal priority (nice 0), this fix should restore the smooth playback from Build 47/48 by ensuring FFmpeg gets priority -15.
+
+---
+
+### Build 49 (Version 0.30) - 2025-11-09
+**M3U Playlist Support with Shuffle:**
+
+After successful Build 48 stable release, added M3U playlist functionality for enhanced playlist management.
+
+**Features Added:**
+1. ✅ **M3U Playlist Parser** (parseM3U function)
+   - Automatically detects .m3u files in directory
+   - Parses M3U format with comment/metadata support
+   - Handles both absolute and relative file paths
+   - Validates file existence and format support
+
+2. ✅ **Shuffle Functionality** (shuffleArray function)
+   - Fisher-Yates shuffle algorithm
+   - Works with both M3U playlists and directory listings
+   - New shuffle parameter for /playdir command
+
+3. ✅ **Enhanced /playdir Command**
+   - Auto-detects M3U files in target directory
+   - Uses M3U track order if found, alphabetical if not
+   - `shuffle:true` parameter to randomize any playlist
+   - Shows playlist type in response (directory/M3U/shuffled)
+
+**User Workflow:**
+- Place optional .m3u file in music directory
+- Run `/playdir dir:/path/to/music`
+- Bot uses M3U order if present, alphabetical otherwise
+- Add `shuffle:true` to randomize
+
+**Technical Note:**
+No audio configuration changes - only added playlist management features. All Build 48 optimizations retained.
+
+**Status:**
+✅ Implemented and tested. User reported stuttering after this build, leading to Build 50 investigation.
+
+---
 
 ### Build 48 (Version 0.30) - 2025-11-09
 **Stable Release - Volume Control and All Features Restored:**
