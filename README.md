@@ -1,6 +1,6 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.30 | **Build:** 48 - Stable Release ✅
+**Version:** 0.30 | **Build:** 49 - M3U Playlist Support ✅
 
 A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists. **Perfect playback with full volume control!**
 
@@ -8,6 +8,8 @@ A high-quality Discord bot for playing audio files in voice channels, supporting
 
 - **✅ STUTTER-FREE PLAYBACK** - Perfect audio quality with no interruptions
 - **✅ FULL VOLUME CONTROL** - Adjustable volume (0-10 scale) working perfectly
+- **✅ M3U PLAYLIST SUPPORT** - Automatic detection and parsing of M3U playlists
+- **✅ SHUFFLE MODE** - Randomize track order for any playlist or directory
 - Play audio files (MP3, WAV, OGG, Opus, FLAC, M4A, AAC, WebM) in Discord voice channels
 - Upload and play files directly through Discord
 - Queue entire directories as playlists
@@ -56,7 +58,10 @@ node index.js
 ## Commands
 
 - `/playmp3 file:<attachment> [volume]` - Play an uploaded audio file
-- `/playdir dir:<path> [start]` - Queue all audio files from a directory
+- `/playdir dir:<path> [start] [shuffle]` - Queue audio files from a directory
+  - Automatically detects and uses M3U playlists if present
+  - Falls back to alphabetical order if no M3U found
+  - Use `shuffle:true` to randomize track order
 - `/volume level:<0-10>` - Set default volume for future tracks
 - `/skip` - Skip the current track
 - `/stop` - Stop playback and clear the queue

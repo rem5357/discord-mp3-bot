@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.30 | Build: 48 - Stable release with volume control restored
+// Version: 0.30 | Build: 49 - M3U playlist support with shuffle
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -38,6 +38,47 @@ const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
 
 // Supported local formats (FFmpeg will decode most things)
 const SUPPORTED = new Set(['mp3','wav','ogg','opus','flac','m4a','aac','webm']);
+
+// Parse M3U playlist file and return ordered list of file paths
+function parseM3U(m3uPath, baseDir) {
+  const content = fs.readFileSync(m3uPath, 'utf8');
+  const lines = content.split(/\r?\n/);
+  const tracks = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Skip empty lines and comments
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    // Handle both absolute and relative paths
+    let trackPath;
+    if (path.isAbsolute(trimmed)) {
+      trackPath = trimmed;
+    } else {
+      // Relative path - resolve from M3U file's directory
+      trackPath = path.join(baseDir, trimmed);
+    }
+
+    // Check if file exists and is supported
+    if (fs.existsSync(trackPath)) {
+      const ext = path.extname(trackPath).slice(1).toLowerCase();
+      if (SUPPORTED.has(ext)) {
+        tracks.push(trackPath);
+      }
+    }
+  }
+
+  return tracks;
+}
+
+// Shuffle array in place using Fisher-Yates algorithm
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
 
 const guildStates = new Map();
 function getState(guildId) {
@@ -307,12 +348,13 @@ const volumeCmd = new SlashCommandBuilder()
     opt.setName('level').setDescription('Volume 0–10').setRequired(true).setMinValue(0).setMaxValue(10)
   );
 
-// /playdir dir:"D:\Music\Album" [start:true]
+// /playdir dir:"D:\Music\Album" [start:true] [shuffle:false]
 const playdirCmd = new SlashCommandBuilder()
   .setName('playdir')
-  .setDescription('Queue all supported audio files from a local directory (non-recursive).')
+  .setDescription('Queue all supported audio files from a local directory (supports M3U playlists).')
   .addStringOption(opt => opt.setName('dir').setDescription('Local directory path').setRequired(true))
-  .addBooleanOption(opt => opt.setName('start').setDescription('Start immediately if idle (default: true)'));
+  .addBooleanOption(opt => opt.setName('start').setDescription('Start immediately if idle (default: true)'))
+  .addBooleanOption(opt => opt.setName('shuffle').setDescription('Shuffle the playlist (default: false)'));
 
 // /skip, /stop
 const skipCmd = new SlashCommandBuilder().setName('skip').setDescription('Skip the current track.');
@@ -391,6 +433,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.commandName === 'playdir') {
     const dirRaw = interaction.options.getString('dir', true);
     const startNow = interaction.options.getBoolean('start') ?? true;
+    const shouldShuffle = interaction.options.getBoolean('shuffle') ?? false;
     const member = interaction.member;
     const vc = member?.voice?.channel;
 
@@ -407,19 +450,49 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: `Not a directory: \`${dir}\``, flags: 64 });
     }
 
-    let files = fs.readdirSync(dir)
-      .filter(f => SUPPORTED.has(path.extname(f).slice(1).toLowerCase()))
-      .map(f => ({ kind:'file', input: path.join(dir, f), name: f }))
-      .sort((a,b) => a.name.localeCompare(b.name, undefined, { numeric:true }));
+    // Check for M3U playlist files in the directory
+    const dirContents = fs.readdirSync(dir);
+    const m3uFiles = dirContents.filter(f => f.toLowerCase().endsWith('.m3u'));
 
-    if (files.length === 0) {
+    let trackPaths = [];
+    let playlistType = 'directory';
+
+    // If M3U file(s) found, use the first one
+    if (m3uFiles.length > 0) {
+      const m3uPath = path.join(dir, m3uFiles[0]);
+      console.log(`🎵 Found M3U playlist: ${m3uFiles[0]}`);
+      trackPaths = parseM3U(m3uPath, dir);
+      playlistType = 'M3U';
+    } else {
+      // No M3U - get all supported audio files and sort alphabetically
+      trackPaths = dirContents
+        .filter(f => SUPPORTED.has(path.extname(f).slice(1).toLowerCase()))
+        .map(f => path.join(dir, f))
+        .sort((a, b) => path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true }));
+    }
+
+    if (trackPaths.length === 0) {
       return interaction.reply({ content: `No supported files in \`${dir}\`.\nSupported: ${[...SUPPORTED].join(', ')}`, flags: 64 });
     }
+
+    // Apply shuffle if requested
+    if (shouldShuffle) {
+      shuffleArray(trackPaths);
+      playlistType += ' (shuffled)';
+      console.log('🔀 Playlist shuffled');
+    }
+
+    // Convert to queue format
+    const files = trackPaths.map(trackPath => ({
+      kind: 'file',
+      input: trackPath,
+      name: path.basename(trackPath)
+    }));
 
     for (const file of files) state.queue.push(file);
 
     ensureConnection(interaction.guild, vc);
-    await interaction.reply({ content: `Queued **${files.length}** tracks from \`${dir}\`. ${startNow ? 'Starting…' : 'Added to queue.'}`, flags: 64 });
+    await interaction.reply({ content: `Queued **${files.length}** tracks from ${playlistType} \`${dir}\`. ${startNow ? 'Starting…' : 'Added to queue.'}`, flags: 64 });
 
     if (startNow && state.player.state.status !== AudioPlayerStatus.Playing) {
       playNext(guildId);
