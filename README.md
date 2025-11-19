@@ -1,8 +1,8 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 1.01 | **Build:** 58 - Enhanced Queue Control ✅
+**Version:** 1.02 | **Build:** 59 - Remote URL Playback ✅
 
-A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists. **100% feature complete with zero stuttering and advanced queue control!**
+A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists from local and remote sources. **100% feature complete with zero stuttering and advanced queue control!**
 
 ## ✨ Features
 
@@ -83,21 +83,26 @@ node index-lavalink.js
 
 You should see:
 ```
-🎵 BardBot v1.01 (Build 58) - Lavalink Edition
+🎵 BardBot v1.02 (Build 59) - Lavalink Edition
 ✅ Logged in as BardBot#...
 ✅ Lavalink node connected: local-node
-Slash commands: /playfile, /volume, /playdir, /skip, /stop, /shuffle, /end
+Slash commands: /playfile, /volume, /playdir, /playurl, /skip, /stop, /shuffle, /end
 ```
 
 ## Commands
 
 ### Playback Commands
 - `/playfile file:<attachment> [volume]` - Play an uploaded audio file (0-100 volume)
-- `/playdir dir:<path> [start] [shuffle]` - Queue audio files from a directory
+- `/playdir dir:<path> [start] [shuffle]` - Queue audio files from a local directory
   - Automatically detects and uses M3U playlists if present
   - Falls back to alphabetical order if no M3U found
   - Use `shuffle:true` to randomize track order
   - Respects persistent shuffle mode if enabled
+- `/playurl url:<url> [start] [shuffle]` - Queue audio files from a remote URL (NEW in Build 59)
+  - Fetches and parses HTML directory listings
+  - Supports all audio formats (MP3, WAV, OGG, FLAC, etc.)
+  - Example: `/playurl url:http://example.com/music/songs1`
+  - Works with shuffle mode
 
 ### Queue Control
 - `/shuffle` - Toggle shuffle mode or reshuffle current playlist (NEW in Build 58)
@@ -133,8 +138,8 @@ Slash commands: /playfile, /volume, /playdir, /skip, /stop, /shuffle, /end
 ### Bot Configuration (index-lavalink.js)
 
 Edit these constants if needed:
-- `VERSION` - Bot version (currently 1.01)
-- `BUILD` - Build number (currently 58)
+- `VERSION` - Bot version (currently 1.02)
+- `BUILD` - Build number (currently 59)
 - `MUSIC_HTTP_BASE` - HTTP music server URL
 - `MUSIC_LOCAL_BASE` - Local music directory path
 
@@ -179,6 +184,7 @@ After extensive testing through 57 builds, Lavalink proved superior to FFmpeg:
 
 ## Version History
 
+- **1.02 (Build 59)** - Added `/playurl` command for remote URL directory playback
 - **1.01 (Build 58)** - Added `/shuffle` and `/end` commands, queue control bugfixes
 - **1.0 (Build 57)** - STABLE RELEASE - Optimized Lavalink with HIGH quality settings
 - **0.40A (Build 56)** - Lavalink + Nginx HTTP streaming

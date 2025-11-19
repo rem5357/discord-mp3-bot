@@ -1,16 +1,48 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 1.01 | **Build:** 58 - Enhanced Queue Control ✅
+**Version:** 1.02 | **Build:** 59 - Remote URL Playback ✅
 
-A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
+A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists from local and remote sources.
 
 **Primary Version:**
-- **Build 58 (1.01)** - Lavalink-based with shuffle and enhanced queue control (this branch: `lavalink-experiment`)
+- **Build 59 (1.02)** - Lavalink-based with local and remote playback (this branch: `lavalink-experiment`)
 - **Build 53 (0.31)** - FFmpeg-based (legacy - master branch)
 
 ---
 
-## ✅ CURRENT STATUS: Build 58 - Enhanced Features - Production Ready!
+## ✅ CURRENT STATUS: Build 59 - Remote URL Support - Production Ready!
+
+### Build 59 - Remote URL Playback (2025-11-19)
+
+**New Feature:**
+
+**`/playurl` Command** 🌐
+- Play audio files from remote URL directory listings
+- Fetches and parses HTML directory indexes
+- Supports all standard audio formats (MP3, WAV, OGG, FLAC, etc.)
+- Works with shuffle mode
+- Example: `/playurl url:http://rmyers.com/music/songs1`
+
+**Technical Implementation:**
+- Added `fetchAudioUrlsFromRemote()` function using node-fetch
+- Parses HTML directory listings for audio file links
+- Converts relative URLs to absolute URLs automatically
+- Supports both HTTP and HTTPS
+- Integrated with existing shuffle and queue management
+
+**Commands Available:**
+- `/playfile` - Upload and play audio files
+- `/playdir` - Play local directories/M3U playlists
+- `/playurl` - Play remote URL directories (NEW)
+- `/volume` - Set volume (0-100)
+- `/skip` - Skip current track
+- `/stop` - Stop immediately and clear queue
+- `/shuffle` - Toggle shuffle or reshuffle current playlist
+- `/end` - End after current song
+
+---
+
+## Build 58 - Enhanced Features - Production Ready! (2025-11-19)
 
 ### Build 58 - Shuffle and Queue Control Commands (2025-11-19)
 

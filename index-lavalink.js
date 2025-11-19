@@ -1,14 +1,15 @@
 // index-lavalink.js — BardBot: Discord Audio Playback Bot (Lavalink Edition)
-// Version: 1.01 | Build: 58 - Added /shuffle and /end commands with queue bugfix
+// Version: 1.02 | Build: 59 - Added /playurl command for remote directory playback
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
+const fetch = require('node-fetch');
 
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const { LavalinkManager } = require('lavalink-client');
 
-const VERSION = '1.01';
-const BUILD = 58;
+const VERSION = '1.02';
+const BUILD = 59;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -55,6 +56,45 @@ function shuffleArray(array) {
     [array[i], array[j]] = [array[j], array[i]];
   }
   return array;
+}
+
+// Fetch and parse audio file URLs from a remote directory
+async function fetchAudioUrlsFromRemote(baseUrl) {
+  try {
+    const response = await fetch(baseUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const html = await response.text();
+    const audioUrls = [];
+
+    // Regular expression to find links to audio files
+    // Matches href="filename.mp3" or href="/path/filename.mp3" etc.
+    const linkRegex = /href=["']([^"']+\.(mp3|wav|ogg|opus|flac|m4a|aac|webm))["']/gi;
+    let match;
+
+    while ((match = linkRegex.exec(html)) !== null) {
+      let audioUrl = match[1];
+
+      // Convert relative URLs to absolute
+      if (audioUrl.startsWith('/')) {
+        // Absolute path on same domain
+        const urlObj = new URL(baseUrl);
+        audioUrl = `${urlObj.protocol}//${urlObj.host}${audioUrl}`;
+      } else if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://')) {
+        // Relative path
+        audioUrl = new URL(audioUrl, baseUrl).href;
+      }
+
+      audioUrls.push(audioUrl);
+    }
+
+    return audioUrls;
+  } catch (error) {
+    console.error('Error fetching audio URLs:', error);
+    throw error;
+  }
 }
 
 // Per-guild state
@@ -166,6 +206,13 @@ const playdirCmd = new SlashCommandBuilder()
   .addBooleanOption(opt => opt.setName('start').setDescription('Start immediately if idle (default: true)'))
   .addBooleanOption(opt => opt.setName('shuffle').setDescription('Shuffle the playlist (default: false)'));
 
+const playurlCmd = new SlashCommandBuilder()
+  .setName('playurl')
+  .setDescription('Queue all audio files from a remote URL directory listing.')
+  .addStringOption(opt => opt.setName('url').setDescription('URL to directory with audio files (e.g., http://example.com/music)').setRequired(true))
+  .addBooleanOption(opt => opt.setName('start').setDescription('Start immediately if idle (default: true)'))
+  .addBooleanOption(opt => opt.setName('shuffle').setDescription('Shuffle the playlist (default: false)'));
+
 const skipCmd = new SlashCommandBuilder().setName('skip').setDescription('Skip the current track.');
 const stopCmd = new SlashCommandBuilder().setName('stop').setDescription('Stop playback and clear the queue.');
 const shuffleCmd = new SlashCommandBuilder()
@@ -190,9 +237,9 @@ client.once('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   await rest.put(
     Routes.applicationGuildCommands(client.user.id, DEV_GUILD_ID),
-    { body: [playCmd.toJSON(), volumeCmd.toJSON(), playdirCmd.toJSON(), skipCmd.toJSON(), stopCmd.toJSON(), shuffleCmd.toJSON(), endCmd.toJSON()] }
+    { body: [playCmd.toJSON(), volumeCmd.toJSON(), playdirCmd.toJSON(), playurlCmd.toJSON(), skipCmd.toJSON(), stopCmd.toJSON(), shuffleCmd.toJSON(), endCmd.toJSON()] }
   );
-  console.log('Slash commands: /playfile, /volume, /playdir, /skip, /stop, /shuffle, /end');
+  console.log('Slash commands: /playfile, /volume, /playdir, /playurl, /skip, /stop, /shuffle, /end');
   console.log('🎧 Lavalink integration active!');
 });
 
@@ -400,6 +447,93 @@ client.on('interactionCreate', async interaction => {
     } catch (e) {
       console.error(e);
       await interaction.editReply('Failed to queue directory.');
+    }
+    return;
+  }
+
+  // ----- /playurl -----
+  if (interaction.commandName === 'playurl') {
+    const urlRaw = interaction.options.getString('url', true);
+    const startNow = interaction.options.getBoolean('start') ?? true;
+    const shouldShuffle = interaction.options.getBoolean('shuffle') ?? state.shuffleMode;
+    const member = interaction.member;
+    const vc = member?.voice?.channel;
+
+    if (!vc) return interaction.reply({ content: 'Join a voice channel first.', flags: 64 });
+
+    // IMPORTANT: Defer reply IMMEDIATELY before any heavy processing
+    await interaction.deferReply({ flags: 64 });
+
+    console.log(`🌐 Fetching audio files from URL: ${urlRaw}`);
+
+    try {
+      // Fetch audio file URLs from the remote directory
+      const audioUrls = await fetchAudioUrlsFromRemote(urlRaw);
+
+      if (audioUrls.length === 0) {
+        return interaction.editReply(`No audio files found at \`${urlRaw}\`.\nSupported formats: ${[...SUPPORTED].join(', ')}`);
+      }
+
+      console.log(`Found ${audioUrls.length} audio files`);
+
+      // Store URL and track paths for /shuffle command
+      state.lastPlayedDir = urlRaw;
+      state.lastTrackPaths = [...audioUrls]; // Store URLs as paths
+
+      let trackUrls = [...audioUrls];
+      if (shouldShuffle) {
+        shuffleArray(trackUrls);
+        console.log('🔀 Playlist shuffled');
+      }
+
+      // Get or create player
+      const player = lavalink.getPlayer(guildId) || lavalink.createPlayer({
+        guildId: guildId,
+        voiceChannelId: vc.id,
+        textChannelId: interaction.channelId,
+        selfDeaf: true,
+        volume: state.defaultVolume
+      });
+
+      if (!player.connected) {
+        await player.connect();
+      }
+
+      // Load all tracks
+      let loadedCount = 0;
+      for (const audioUrl of trackUrls) {
+        try {
+          console.log(`🔍 Loading: ${audioUrl}`);
+          const result = await player.search({ query: audioUrl }, interaction.user);
+
+          if (result && result.tracks && result.tracks.length > 0) {
+            await player.queue.add(result.tracks[0]);
+            loadedCount++;
+            console.log(`✅ Loaded: ${audioUrl}`);
+          } else {
+            console.warn(`⚠️ Failed to load: ${audioUrl}`);
+            if (result?.exception) {
+              console.warn(`   Error: ${result.exception.message}`);
+            }
+          }
+        } catch (err) {
+          console.error(`❌ Failed to load ${audioUrl}:`, err.message);
+        }
+      }
+
+      if (loadedCount === 0) {
+        return interaction.editReply('Failed to load any tracks from URL.');
+      }
+
+      if (startNow && !player.playing && !player.paused) {
+        await player.play();
+      }
+
+      const playlistType = shouldShuffle ? 'remote directory (shuffled)' : 'remote directory';
+      await interaction.editReply(`Queued **${loadedCount}** tracks from ${playlistType} \`${urlRaw}\`. ${startNow ? 'Starting…' : 'Added to queue.'}`);
+    } catch (e) {
+      console.error(e);
+      await interaction.editReply(`Failed to fetch audio files from URL: ${e.message}`);
     }
     return;
   }
