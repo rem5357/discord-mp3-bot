@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.30 | Build: 50 - Fixed FFmpeg priority setting
+// Version: 0.31 | Build: 51 - QA Fix: Jitter buffer optimization
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -30,8 +30,8 @@ const {
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 
-const VERSION = '0.30';
-const BUILD = 48;
+const VERSION = '0.31';
+const BUILD = 51;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -146,10 +146,10 @@ function makeFfmpegResource(localOrUrl, volume01) {
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: Stable release - Process priority + 64k Opus`);
+  console.log(`📊 Build ${BUILD}: QA Fix - Jitter buffer optimization`);
   console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
   console.log(`🎯 Quality: 48kHz stereo Opus @ 64kbps (Discord default)`);
-  console.log(`⚡ Optimization: High process priority, VBR, 20ms frames`);
+  console.log(`⚡ Optimization: Rate-limited streaming, minimal buffering, process priority`);
 
   return new Promise((resolve, reject) => {
     const args = [
@@ -163,6 +163,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
       '-threads', '0',
       ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
       '-i', inputArg,
+      // CRITICAL: Rate limiting - prevents bursting to Discord's jitter buffer
+      '-re',
       // No video
       '-vn',
       // Map first audio stream
@@ -184,20 +186,26 @@ function makeFfmpegResource(localOrUrl, volume01) {
     // Create FFmpeg process (prism-media will handle the spawning)
     const ff = new prism.FFmpeg({ args });
 
-    // Try to increase FFmpeg process priority on Linux
-    // Must wait a tiny bit for process to spawn
-    setTimeout(() => {
-      if (process.platform === 'linux' && ff.process && ff.process.pid) {
-        try {
-          execSync(`renice -n -15 -p ${ff.process.pid}`, { stdio: 'ignore' });
-          console.log(`🚀 FFmpeg PID ${ff.process.pid} priority set to -15 (high priority)`);
-        } catch (e) {
-          console.warn(`⚠️ Failed to set FFmpeg priority: ${e.message}`);
+    // Try to increase FFmpeg process priority on Linux (improved timing with polling)
+    if (process.platform === 'linux') {
+      let attempts = 0;
+      const maxAttempts = 10; // Check for 100ms total
+      const priorityInterval = setInterval(() => {
+        attempts++;
+        if (ff.process?.pid) {
+          clearInterval(priorityInterval);
+          try {
+            execSync(`renice -n -15 -p ${ff.process.pid}`, { stdio: 'ignore' });
+            console.log(`🚀 FFmpeg PID ${ff.process.pid} priority set to -15 (high priority)`);
+          } catch (e) {
+            console.warn(`⚠️ Failed to set FFmpeg priority: ${e.message}`);
+          }
+        } else if (attempts >= maxAttempts) {
+          clearInterval(priorityInterval);
+          console.warn(`⚠️ FFmpeg process did not spawn within 100ms, priority not set`);
         }
-      } else if (process.platform === 'linux') {
-        console.warn(`⚠️ FFmpeg process not available for priority setting (process: ${!!ff.process}, pid: ${ff.process?.pid})`);
-      }
-    }, 50);
+      }, 10); // Check every 10ms
+    }
 
     // Track stream health
     let bytesRead = 0;
@@ -208,19 +216,21 @@ function makeFfmpegResource(localOrUrl, volume01) {
       reject(err);
     });
 
-    // MASSIVE 128MB buffer (doubled from 64MB)
+    // Optimized 512KB buffer (reduced from 128MB to prevent over-buffering)
     const stream = new PassThrough({
-      highWaterMark: 1 << 27  // 128MB buffer
+      highWaterMark: 512 * 1024  // 512KB buffer
     });
 
     // Pre-buffer data before resolving
     let cachedChunks = [];
     let cacheSize = 0;
-    const CACHE_TARGET = 8 * 1024 * 1024; // Pre-buffer 8MB before starting (reduced for 64k bitrate)
+    // CRITICAL FIX: Reduced to 16KB (~2 seconds at 64kbps) to prevent Discord jitter buffer overflow
+    // Old value: 8MB = 17 minutes of audio, causing Discord to speed up playback
+    const CACHE_TARGET = 16 * 1024; // Pre-buffer 16KB (~250ms at 64kbps)
     let caching = true;
     let resourceCreated = false;
 
-    console.log('🗄️ Pre-buffering 8MB of Opus data (64k bitrate)...');
+    console.log('🗄️ Pre-buffering 16KB of Opus data (~250ms at 64kbps)...');
 
     // Monitor data flow for debugging
     ff.on('data', (chunk) => {
@@ -229,7 +239,7 @@ function makeFfmpegResource(localOrUrl, volume01) {
         cacheSize += chunk.length;
 
         if (cacheSize >= CACHE_TARGET && !resourceCreated) {
-          console.log(`✅ Pre-buffered ${(cacheSize / 1024 / 1024).toFixed(1)}MB - ready for playback`);
+          console.log(`✅ Pre-buffered ${(cacheSize / 1024).toFixed(1)}KB - ready for playback`);
           caching = false;
           resourceCreated = true;
 
@@ -243,7 +253,7 @@ function makeFfmpegResource(localOrUrl, volume01) {
           const resource = createAudioResource(stream, {
             inputType: StreamType.OggOpus,
             inlineVolume: false,  // Disabled for performance
-            highWaterMark: 24     // Increased from default 12 (480ms of audio ready)
+            highWaterMark: 8      // Reduced from 24 to 8 (160ms) - prevents Discord jitter compensation
           });
 
           // Store FFmpeg reference for cleanup
@@ -262,7 +272,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
       bytesRead += chunk.length;
       const now = Date.now();
       if (now - lastReport > 5000) {  // Report every 5 seconds
-        const kbps = (bytesRead * 8) / (now - lastReport);
+        // FIXED: Divide by seconds, not milliseconds
+        const kbps = (bytesRead * 8) / ((now - lastReport) / 1000);
         console.log(`📈 Stream health: ${Math.round(kbps)} kbps (target: ~64 kbps for Opus)`);
         bytesRead = 0;
         lastReport = now;
@@ -272,13 +283,13 @@ function makeFfmpegResource(localOrUrl, volume01) {
     ff.on('end', () => {
       // Flush any remaining cached data if we never hit the cache target
       if (caching && cachedChunks.length > 0 && !resourceCreated) {
-        console.log(`⚠️ File smaller than cache target, using ${(cacheSize / 1024 / 1024).toFixed(1)}MB`);
+        console.log(`⚠️ File smaller than cache target, using ${(cacheSize / 1024).toFixed(1)}KB`);
         cachedChunks.forEach(c => stream.write(c));
 
         const resource = createAudioResource(stream, {
           inputType: StreamType.OggOpus,
           inlineVolume: false,
-          highWaterMark: 24     // Increased from default 12 (480ms of audio ready)
+          highWaterMark: 8      // Reduced from 24 to 8 (160ms) - prevents Discord jitter compensation
         });
 
         resource._ffmpeg = ff;
