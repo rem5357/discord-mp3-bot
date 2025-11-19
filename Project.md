@@ -1,12 +1,16 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.31 | **Build:** 53 (FFmpeg Encoder Buffer Fix)
+**Version:** 0.40A | **Build:** 55 (Lavalink Integration - "A" = Alternate)
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
+**Two Versions Available:**
+- **Build 55 (0.40A)** - Lavalink-based (this branch: `lavalink-experiment`)
+- **Build 53 (0.31)** - FFmpeg-based (master branch)
+
 ---
 
-## ✅ CURRENT STATUS: Build 53 - FFmpeg Encoder Buffer Optimization
+## ✅ CURRENT STATUS: Build 55 - Lavalink Integration (Best Performance So Far!)
 
 **Issue Addressed (2025-11-18):**
 After extensive optimization attempts (Builds 34-52), stuttering issues persisted. Analysis revealed that while all downstream buffers (Node.js streams, Discord.js buffering, pre-caching) were optimized, the **FFmpeg encoder itself** had no explicit buffer size setting.
@@ -645,6 +649,54 @@ echo "net.core.wmem_max=134217728" | sudo tee -a /etc/sysctl.conf
 - Self-deafens to save bandwidth
 
 ## Version History
+
+### Build 55 (Version 0.40A) - 2025-11-18
+**Lavalink Integration - "A" Designation for Alternate Architecture:**
+
+**Major Achievement:**
+User testing confirms: "It worked very well. More testing to come, but it was the best so far."
+
+**Changes Implemented:**
+1. ✅ **Renamed /playmp3 → /playfile** for better clarity
+2. ✅ **Version numbering:** 0.40A (A = Alternate/Lavalink architecture)
+3. ✅ **Confirmed working:** Audio playback via Discord file attachments
+4. ✅ **Performance:** Best playback quality achieved so far
+
+**Architecture:**
+- Bot → Lavalink Server (Java) → Discord Voice Gateway
+- External audio processing (reduces bot CPU load)
+- Volume scale: 0-100 (more granular than FFmpeg's 0-10)
+
+**Status:**
+✅ `/playfile` confirmed working excellently
+⚠️ `/playdir` investigating issue (playlist loads but no audio output)
+
+**Commands:**
+- `/playfile` - Upload and play audio files (NEW NAME)
+- `/volume` - Set volume 0-100
+- `/playdir` - Play directory/M3U playlists (investigating)
+- `/skip` - Skip current track
+- `/stop` - Stop and clear queue
+
+**Technical Notes:**
+- Lavalink server running as systemd service
+- Auto-start on boot enabled
+- Connection via localhost:2333
+- Full documentation in LAVALINK-INTEGRATION.md
+
+**Testing Status:**
+✅ Ready for production use (with /playfile)
+⚠️ /playdir needs debugging
+
+---
+
+### Build 54 (Version 0.32) - 2025-11-18
+**Initial Lavalink Integration (Had Initialization Bug):**
+
+Fixed initialization error with lavalink-client API.
+Superseded by Build 55.
+
+---
 
 ### Build 53 (Version 0.31) - 2025-11-18
 **FFmpeg Encoder Buffer Fix - Addressing Missing Encoder-Level Buffering:**

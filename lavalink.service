@@ -1,0 +1,23 @@
+[Unit]
+Description=Lavalink Audio Node
+After=network.target
+
+[Service]
+Type=simple
+User=mithroll
+WorkingDirectory=/home/mithroll/Projects/discord-mp3-bot
+ExecStart=/usr/bin/java -Xmx512M -jar /home/mithroll/Projects/discord-mp3-bot/Lavalink.jar
+Restart=on-failure
+RestartSec=5s
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lavalink
+
+[Install]
+WantedBy=multi-user.target
