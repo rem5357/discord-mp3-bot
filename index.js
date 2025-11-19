@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.31 | Build: 51 - QA Fix: Jitter buffer optimization
+// Version: 0.31 | Build: 52 - QA Fix: Removed -re flag (caused hang)
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,7 +31,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.31';
-const BUILD = 51;
+const BUILD = 52;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -146,10 +146,10 @@ function makeFfmpegResource(localOrUrl, volume01) {
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: QA Fix - Jitter buffer optimization`);
+  console.log(`📊 Build ${BUILD}: QA Fix - Jitter buffer optimization (no -re)`)
   console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
   console.log(`🎯 Quality: 48kHz stereo Opus @ 64kbps (Discord default)`);
-  console.log(`⚡ Optimization: Rate-limited streaming, minimal buffering, process priority`);
+  console.log(`⚡ Optimization: Minimal buffering (16KB), Discord natural rate limiting`);
 
   return new Promise((resolve, reject) => {
     const args = [
@@ -163,8 +163,6 @@ function makeFfmpegResource(localOrUrl, volume01) {
       '-threads', '0',
       ...(isRemote ? ['-reconnect','1','-reconnect_streamed','1','-reconnect_delay_max','5'] : []),
       '-i', inputArg,
-      // CRITICAL: Rate limiting - prevents bursting to Discord's jitter buffer
-      '-re',
       // No video
       '-vn',
       // Map first audio stream
