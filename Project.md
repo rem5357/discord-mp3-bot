@@ -1,19 +1,126 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.40A | **Build:** 55 (Lavalink Integration - "A" = Alternate)
+**Version:** 0.40A | **Build:** 56 (Lavalink Integration - "A" = Alternate)
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
 **Two Versions Available:**
-- **Build 55 (0.40A)** - Lavalink-based (this branch: `lavalink-experiment`)
+- **Build 56 (0.40A)** - Lavalink-based with HTTP streaming (this branch: `lavalink-experiment`)
 - **Build 53 (0.31)** - FFmpeg-based (master branch)
 
 ---
 
-## ✅ CURRENT STATUS: Build 55 - Lavalink Integration (Best Performance So Far!)
+## ✅ CURRENT STATUS: Build 56 - Lavalink + Nginx HTTP Streaming (WORKING!)
+
+**Issue Addressed (2025-11-19):**
+Build 55 introduced Lavalink integration which worked great for `/playfile` (Discord uploads), but `/playdir` (local files) failed because Lavalink doesn't support `file://` protocol URLs. Solution: Serve local music files via HTTP using Nginx.
+
+### Build 56 Implementation - HTTP Music Server
+
+**Architecture:**
+- **Lavalink Server:** Java-based audio processor running on localhost:2333
+  - Password: `bardbot-secure-password-2025`
+  - Managed by systemd service for auto-start
+  - Handles all audio encoding and streaming to Discord
+
+- **Nginx Music Server:** Port 8080 serving local music files
+  - Configuration: `/etc/nginx/sites-available/music`
+  - Serves: `/home/mithroll/Shared` as `/music`
+  - Symlink: `/var/www/music` → `/home/mithroll/Shared`
+  - Features: Directory browsing (autoindex), CORS headers, caching
+  - Bot accesses: `http://localhost:8080/music/`
+
+**Key Changes:**
+1. ✅ Created separate Nginx server block on port 8080
+2. ✅ Updated bot MUSIC_HTTP_BASE to `http://localhost:8080/music`
+3. ✅ Fixed URL encoding for filenames with spaces
+4. ✅ Fixed variable scope issue with `basename`
+5. ✅ M3U playlist support working with HTTP URLs
+
+**Commands:**
+- `/playfile` - Upload and play audio files (tested, working!)
+- `/playdir` - Play local directories via HTTP (tested, working!)
+- `/volume` - Set default volume 0-100
+- `/skip` - Skip current track
+- `/stop` - Stop and clear queue
+
+**Quick Start:**
+```bash
+# Lavalink is managed by systemd (auto-starts on boot)
+sudo systemctl status lavalink
+
+# Start the bot
+cd /home/mithroll/Projects/discord-mp3-bot
+node index-lavalink.js
+
+# Test in Discord
+/playdir dir:/home/mithroll/Shared/Songs1
+```
+
+### Build 56 Lessons Learned
+
+**Critical Discovery: Lavalink HTTP-Only Architecture**
+- Lavalink **DOES NOT** support `file://` URLs for local files
+- When given file:// URLs, Lavalink falls back to YouTube search (returns 400 errors)
+- Solution: Must serve local files via HTTP/HTTPS
+
+**Nginx Configuration Challenges:**
+- **Problem:** Nginx `alias` + `autoindex` + server-level `index` directive = redirect loop
+- **Root Cause:** The global `index` directive conflicts with `autoindex` when using `alias`
+- **Failed Attempts:**
+  - Adding `try_files` (doesn't work with `alias`)
+  - Overriding `index` directive (still caused loops)
+  - Using `location /music/` with `alias /home/mithroll/Shared/`
+- **Solution:** Create separate server block on port 8080 with simple `root /var/www` and symlink
+- **Why It Works:** Clean server block without conflicting directives from default server
+
+**URL Encoding is Critical:**
+- Filenames with spaces must be properly URL-encoded
+- Example: `Last Ship Out.mp3` → `Last%20Ship%20Out.mp3`
+- **Implementation:** Split path by `/`, encode each component, rejoin
+  ```javascript
+  const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+  ```
+
+**JavaScript Scope Gotchas:**
+- Variables defined inside `if/else` blocks aren't accessible outside
+- **Bug:** `basename` defined in `else` block but used after the block
+- **Fix:** Move variable declaration before the conditional
+
+**Discord Interaction Timeouts:**
+- Discord interactions expire after 3 seconds
+- Must call `interaction.deferReply()` IMMEDIATELY before any processing
+- Multiple bot instances cause "Unknown interaction" errors
+- Solution: Always kill old instances before starting new ones
+
+**Nginx Permissions:**
+- www-data needs execute (`x`) permission on `/home/mithroll` to traverse to `/home/mithroll/Shared`
+- Command: `chmod o+x /home/mithroll`
+- Symlinks work fine once permissions are correct
+
+### Build 56 File Changes
+
+**Modified Files:**
+- `index-lavalink.js` (lines 17, 345-357)
+  - Changed MUSIC_HTTP_BASE to `http://localhost:8080/music`
+  - Added proper URL encoding for path components
+  - Fixed basename variable scope
+
+**New Files:**
+- `/etc/nginx/sites-available/music` - Nginx server block for port 8080
+- `/var/www/music` → `/home/mithroll/Shared` (symlink)
+
+**Configuration Files:**
+- `nginx-music.conf` - Documentation of Nginx setup
+- `application.yml` - Lavalink configuration (existing)
+- `lavalink.service` - systemd service (existing)
+
+---
+
+## Build 55 - Initial Lavalink Integration (2025-11-18)
 
 **Issue Addressed (2025-11-18):**
-After extensive optimization attempts (Builds 34-52), stuttering issues persisted. Analysis revealed that while all downstream buffers (Node.js streams, Discord.js buffering, pre-caching) were optimized, the **FFmpeg encoder itself** had no explicit buffer size setting.
+After extensive optimization attempts (Builds 34-52), stuttering issues persisted with FFmpeg. Analysis revealed that while all downstream buffers (Node.js streams, Discord.js buffering, pre-caching) were optimized, the **FFmpeg encoder itself** had no explicit buffer size setting.
 
 **Root Cause Analysis:**
 Previous builds focused on stream-level and application-level buffering, but the FFmpeg Opus encoder was using default variable buffer sizes. This could cause encoding rate fluctuations that lead to stuttering, regardless of how well buffered the downstream pipeline was.
@@ -282,12 +389,12 @@ Since stuttering is now RESOLVED, these are optional improvements:
 
 ## Commands
 
-### /playmp3
+### /playfile (Lavalink version) / /playmp3 (FFmpeg version)
 Play an uploaded audio file in your current voice channel.
 - **Parameters:**
   - `file` (required): The audio file attachment to play
-  - `volume` (optional): Volume level 0-10 for this track only
-- **Usage:** Join a voice channel, then upload an MP3 file using this command
+  - `volume` (optional): Volume level 0-100 (Lavalink) or 0-10 (FFmpeg) for this track only
+- **Usage:** Join a voice channel, then upload an audio file using this command
 
 ### /playdir
 Queue all supported audio files from a local directory (non-recursive).

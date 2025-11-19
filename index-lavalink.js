@@ -8,10 +8,14 @@ const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require
 const { LavalinkManager } = require('lavalink-client');
 
 const VERSION = '0.40A';
-const BUILD = 55;
+const BUILD = 56;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
+
+// Music HTTP server configuration
+const MUSIC_HTTP_BASE = 'http://localhost:8080/music';
+const MUSIC_LOCAL_BASE = '/home/mithroll/Shared';
 
 // Supported local formats
 const SUPPORTED = new Set(['mp3','wav','ogg','opus','flac','m4a','aac','webm']);
@@ -274,15 +278,18 @@ client.on('interactionCreate', async interaction => {
 
     if (!vc) return interaction.reply({ content: 'Join a voice channel first.', flags: 64 });
 
+    // IMPORTANT: Defer reply IMMEDIATELY before any heavy processing
+    await interaction.deferReply({ flags: 64 });
+
     const dir = path.resolve(dirRaw);
     console.log(`📁 Playlist dir: ${dir}`);
 
     let stat;
     try { stat = fs.statSync(dir); } catch {
-      return interaction.reply({ content: `Directory not found: \`${dir}\``, flags: 64 });
+      return interaction.editReply(`Directory not found: \`${dir}\``);
     }
     if (!stat.isDirectory()) {
-      return interaction.reply({ content: `Not a directory: \`${dir}\``, flags: 64 });
+      return interaction.editReply(`Not a directory: \`${dir}\``);
     }
 
     const dirContents = fs.readdirSync(dir);
@@ -304,7 +311,7 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (trackPaths.length === 0) {
-      return interaction.reply({ content: `No supported files in \`${dir}\`.\nSupported: ${[...SUPPORTED].join(', ')}`, flags: 64 });
+      return interaction.editReply(`No supported files in \`${dir}\`.\nSupported: ${[...SUPPORTED].join(', ')}`);
     }
 
     if (shouldShuffle) {
@@ -312,8 +319,6 @@ client.on('interactionCreate', async interaction => {
       playlistType += ' (shuffled)';
       console.log('🔀 Playlist shuffled');
     }
-
-    await interaction.deferReply({ flags: 64 });
 
     try {
       // Get or create player
@@ -329,19 +334,43 @@ client.on('interactionCreate', async interaction => {
         await player.connect();
       }
 
-      // Load all tracks - for local files, convert to file:// URLs
+      // Load all tracks - convert local paths to HTTP URLs
       let loadedCount = 0;
       for (const trackPath of trackPaths) {
         try {
-          const fileUrl = `file://${trackPath}`;
-          const result = await player.search({ query: fileUrl }, interaction.user);
+          // Convert local file path to HTTP URL
+          // Example: /home/mithroll/Shared/Songs1/song.mp3
+          //       -> http://localhost:8080/music/Songs1/song.mp3
+
+          const basename = path.basename(trackPath);
+          let httpUrl;
+          if (trackPath.startsWith(MUSIC_LOCAL_BASE)) {
+            // Path is in /home/mithroll/Shared
+            const relativePath = trackPath.substring(MUSIC_LOCAL_BASE.length);
+            // URL-encode each path component
+            const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+            httpUrl = `${MUSIC_HTTP_BASE}${encodedPath}`;
+          } else {
+            // Try to find corresponding path in music directory
+            const dirname = path.basename(path.dirname(trackPath));
+            httpUrl = `${MUSIC_HTTP_BASE}/${dirname}/${encodeURIComponent(basename)}`;
+          }
+
+          console.log(`🔍 Loading: ${basename} → ${httpUrl}`);
+          const result = await player.search({ query: httpUrl }, interaction.user);
 
           if (result && result.tracks && result.tracks.length > 0) {
             await player.queue.add(result.tracks[0]);
             loadedCount++;
+            console.log(`✅ Loaded: ${path.basename(trackPath)}`);
+          } else {
+            console.warn(`⚠️ Failed to load: ${path.basename(trackPath)}`);
+            if (result?.exception) {
+              console.warn(`   Error: ${result.exception.message}`);
+            }
           }
         } catch (err) {
-          console.warn(`⚠️ Failed to load ${path.basename(trackPath)}:`, err.message);
+          console.error(`❌ Failed to load ${path.basename(trackPath)}:`, err.message);
         }
       }
 
