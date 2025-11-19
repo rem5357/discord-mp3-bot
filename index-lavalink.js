@@ -1,5 +1,5 @@
 // index-lavalink.js — BardBot: Discord Audio Playback Bot (Lavalink Edition)
-// Version: 0.40A | Build: 55 - Lavalink alternate version (A = Alternate/Lavalink)
+// Version: 1.0 | Build: 57 - Stable Release - Lavalink with optimized quality settings
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -7,8 +7,8 @@ const path = require('node:path');
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const { LavalinkManager } = require('lavalink-client');
 
-const VERSION = '0.40A';
-const BUILD = 56;
+const VERSION = '1.0';
+const BUILD = 57;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
