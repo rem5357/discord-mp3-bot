@@ -1,16 +1,61 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 1.0 | **Build:** 57 - STABLE RELEASE ✅
+**Version:** 1.01 | **Build:** 58 - Enhanced Queue Control ✅
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
 **Primary Version:**
-- **Build 57 (1.0)** - Lavalink-based with optimized quality settings (this branch: `lavalink-experiment`)
+- **Build 58 (1.01)** - Lavalink-based with shuffle and enhanced queue control (this branch: `lavalink-experiment`)
 - **Build 53 (0.31)** - FFmpeg-based (legacy - master branch)
 
 ---
 
-## ✅ CURRENT STATUS: Build 57 - STABLE RELEASE - 100% Feature Complete!
+## ✅ CURRENT STATUS: Build 58 - Enhanced Features - Production Ready!
+
+### Build 58 - Shuffle and Queue Control Commands (2025-11-19)
+
+**New Features:**
+
+1. **`/shuffle` Command** 🔀
+   - Toggle shuffle mode ON/OFF
+   - If currently playing: Reshuffles entire playlist and restarts from beginning
+   - If idle: Enables shuffle mode for next `/playdir` command
+   - Persistent shuffle state across sessions
+   - Works with both M3U playlists and directory listings
+
+2. **`/end` Command** ⏹️
+   - Stop playback after current song finishes
+   - Different from `/stop` which stops immediately
+   - Clears queue but lets current track complete
+   - Perfect for "play one more then stop" scenarios
+
+3. **Enhanced `/playdir`**
+   - Now respects persistent shuffle mode automatically
+   - Manual `shuffle:true` parameter still works as override
+   - Stores playlist information for `/shuffle` command
+
+**Bug Fixes:**
+- Fixed `queue.clear()` issue - lavalink-client uses `queue.tracks = []` instead
+- Resolved crash when using `/stop`, `/shuffle`, or `/end` commands
+- All queue manipulation now uses correct lavalink-client API
+
+**Implementation Details:**
+- Added persistent shuffle state to guild management
+- Added `lastPlayedDir` and `lastTrackPaths` for reshuffle functionality
+- Added `endAfterCurrent` flag for graceful playback ending
+
+**Commands Available:**
+- `/playfile` - Upload and play audio files
+- `/playdir` - Play directories/M3U playlists (now with auto-shuffle support)
+- `/volume` - Set volume (0-100)
+- `/skip` - Skip current track
+- `/stop` - Stop immediately and clear queue
+- `/shuffle` - Toggle shuffle or reshuffle current playlist (NEW)
+- `/end` - End after current song (NEW)
+
+---
+
+## Build 57 - STABLE RELEASE - 100% Feature Complete! (2025-11-19)
 
 **Achievement:** After 57 builds and extensive optimization efforts, BardBot has reached 100% feature completion with zero stuttering and excellent audio quality.
 

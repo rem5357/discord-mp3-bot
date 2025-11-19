@@ -1,5 +1,5 @@
 // index-lavalink.js — BardBot: Discord Audio Playback Bot (Lavalink Edition)
-// Version: 1.0 | Build: 57 - Stable Release - Lavalink with optimized quality settings
+// Version: 1.01 | Build: 58 - Added /shuffle and /end commands with queue bugfix
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -7,8 +7,8 @@ const path = require('node:path');
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const { LavalinkManager } = require('lavalink-client');
 
-const VERSION = '1.0';
-const BUILD = 57;
+const VERSION = '1.01';
+const BUILD = 58;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -62,10 +62,14 @@ const guildStates = new Map();
 function getState(guildId) {
   if (!guildStates.has(guildId)) {
     guildStates.set(guildId, {
-      defaultVolume: 30,  // 0-100 scale for Lavalink
-      queue: [],          // items: { kind:'file'|'url', input:string, name:string }
+      defaultVolume: 30,      // 0-100 scale for Lavalink
+      queue: [],              // items: { kind:'file'|'url', input:string, name:string }
       currentTrack: null,
-      player: null
+      player: null,
+      shuffleMode: false,     // Persistent shuffle mode
+      endAfterCurrent: false, // Flag for /end command
+      lastPlayedDir: null,    // Remember last directory/playlist for shuffle
+      lastTrackPaths: []      // Original track paths for reshuffling
     });
   }
   return guildStates.get(guildId);
@@ -164,6 +168,12 @@ const playdirCmd = new SlashCommandBuilder()
 
 const skipCmd = new SlashCommandBuilder().setName('skip').setDescription('Skip the current track.');
 const stopCmd = new SlashCommandBuilder().setName('stop').setDescription('Stop playback and clear the queue.');
+const shuffleCmd = new SlashCommandBuilder()
+  .setName('shuffle')
+  .setDescription('Toggle shuffle mode. Reshuffles current playlist or enables shuffle for next playdir.');
+const endCmd = new SlashCommandBuilder()
+  .setName('end')
+  .setDescription('End playback after the current song finishes.');
 
 client.once('ready', async () => {
   console.log('='.repeat(60));
@@ -180,9 +190,9 @@ client.once('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   await rest.put(
     Routes.applicationGuildCommands(client.user.id, DEV_GUILD_ID),
-    { body: [playCmd.toJSON(), volumeCmd.toJSON(), playdirCmd.toJSON(), skipCmd.toJSON(), stopCmd.toJSON()] }
+    { body: [playCmd.toJSON(), volumeCmd.toJSON(), playdirCmd.toJSON(), skipCmd.toJSON(), stopCmd.toJSON(), shuffleCmd.toJSON(), endCmd.toJSON()] }
   );
-  console.log('Slash commands: /playfile, /volume, /playdir, /skip, /stop');
+  console.log('Slash commands: /playfile, /volume, /playdir, /skip, /stop, /shuffle, /end');
   console.log('🎧 Lavalink integration active!');
 });
 
@@ -272,7 +282,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.commandName === 'playdir') {
     const dirRaw = interaction.options.getString('dir', true);
     const startNow = interaction.options.getBoolean('start') ?? true;
-    const shouldShuffle = interaction.options.getBoolean('shuffle') ?? false;
+    const shouldShuffle = interaction.options.getBoolean('shuffle') ?? state.shuffleMode; // Use persistent shuffle mode if not explicitly set
     const member = interaction.member;
     const vc = member?.voice?.channel;
 
@@ -313,6 +323,10 @@ client.on('interactionCreate', async interaction => {
     if (trackPaths.length === 0) {
       return interaction.editReply(`No supported files in \`${dir}\`.\nSupported: ${[...SUPPORTED].join(', ')}`);
     }
+
+    // Store directory and original track paths for /shuffle command
+    state.lastPlayedDir = dir;
+    state.lastTrackPaths = [...trackPaths]; // Store copy before shuffling
 
     if (shouldShuffle) {
       shuffleArray(trackPaths);
@@ -404,11 +418,99 @@ client.on('interactionCreate', async interaction => {
   if (interaction.commandName === 'stop') {
     const player = lavalink.getPlayer(guildId);
     if (player) {
-      await player.queue.clear();
+      // Clear queue - lavalink-client uses tracks array
+      player.queue.tracks = [];
       await player.stop();
       await player.disconnect();
       await player.destroy();
+      state.endAfterCurrent = false; // Clear end flag
       return interaction.reply({ content: 'Stopped playback and cleared the queue.', flags: 64 });
+    }
+    return interaction.reply({ content: 'Nothing is playing.', flags: 64 });
+  }
+
+  // ----- /shuffle -----
+  if (interaction.commandName === 'shuffle') {
+    const player = lavalink.getPlayer(guildId);
+
+    // Toggle shuffle mode
+    state.shuffleMode = !state.shuffleMode;
+    const shuffleModeText = state.shuffleMode ? 'ON' : 'OFF';
+
+    // If currently playing and we have track paths, reshuffle and restart
+    if (player && player.playing && state.lastTrackPaths.length > 0) {
+      await interaction.deferReply({ flags: 64 });
+
+      try {
+        const vc = interaction.member?.voice?.channel;
+        if (!vc) {
+          return interaction.editReply('You must be in a voice channel to shuffle the current playlist.');
+        }
+
+        // Shuffle the track paths
+        const shuffledPaths = [...state.lastTrackPaths];
+        shuffleArray(shuffledPaths);
+
+        console.log('🔀 Reshuffling current playlist...');
+
+        // Clear current queue - lavalink-client uses tracks array
+        player.queue.tracks = [];
+        await player.stop();
+
+        // Reload all tracks in shuffled order
+        let loadedCount = 0;
+        for (const trackPath of shuffledPaths) {
+          try {
+            const basename = path.basename(trackPath);
+            let httpUrl;
+            if (trackPath.startsWith(MUSIC_LOCAL_BASE)) {
+              const relativePath = trackPath.substring(MUSIC_LOCAL_BASE.length);
+              const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+              httpUrl = `${MUSIC_HTTP_BASE}${encodedPath}`;
+            } else {
+              const dirname = path.basename(path.dirname(trackPath));
+              httpUrl = `${MUSIC_HTTP_BASE}/${dirname}/${encodeURIComponent(basename)}`;
+            }
+
+            const result = await player.search({ query: httpUrl }, interaction.user);
+            if (result && result.tracks && result.tracks.length > 0) {
+              await player.queue.add(result.tracks[0]);
+              loadedCount++;
+            }
+          } catch (err) {
+            console.error(`❌ Failed to load ${path.basename(trackPath)}:`, err.message);
+          }
+        }
+
+        if (loadedCount > 0) {
+          await player.play();
+          return interaction.editReply(`🔀 Shuffle **${shuffleModeText}** - Restarted playlist with **${loadedCount}** shuffled tracks!`);
+        } else {
+          return interaction.editReply('Failed to reshuffle playlist.');
+        }
+      } catch (e) {
+        console.error(e);
+        return interaction.editReply('Failed to reshuffle playlist.');
+      }
+    } else {
+      // Not currently playing, just toggle the mode for next playdir
+      return interaction.reply({
+        content: `🔀 Shuffle mode **${shuffleModeText}** - Will apply to next /playdir command.`,
+        flags: 64
+      });
+    }
+  }
+
+  // ----- /end -----
+  if (interaction.commandName === 'end') {
+    const player = lavalink.getPlayer(guildId);
+    if (player && player.playing) {
+      state.endAfterCurrent = true;
+
+      // Clear the queue but keep current track playing - lavalink-client uses tracks array
+      player.queue.tracks = [];
+
+      return interaction.reply({ content: 'Playback will end after the current song finishes.', flags: 64 });
     }
     return interaction.reply({ content: 'Nothing is playing.', flags: 64 });
   }

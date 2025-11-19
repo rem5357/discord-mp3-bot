@@ -1,8 +1,8 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 1.0 | **Build:** 57 - STABLE RELEASE ✅
+**Version:** 1.01 | **Build:** 58 - Enhanced Queue Control ✅
 
-A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists. **100% feature complete with zero stuttering!**
+A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists. **100% feature complete with zero stuttering and advanced queue control!**
 
 ## ✨ Features
 
@@ -83,21 +83,33 @@ node index-lavalink.js
 
 You should see:
 ```
-🎵 BardBot v1.0 (Build 57) - Lavalink Edition
+🎵 BardBot v1.01 (Build 58) - Lavalink Edition
 ✅ Logged in as BardBot#...
 ✅ Lavalink node connected: local-node
+Slash commands: /playfile, /volume, /playdir, /skip, /stop, /shuffle, /end
 ```
 
 ## Commands
 
+### Playback Commands
 - `/playfile file:<attachment> [volume]` - Play an uploaded audio file (0-100 volume)
 - `/playdir dir:<path> [start] [shuffle]` - Queue audio files from a directory
   - Automatically detects and uses M3U playlists if present
   - Falls back to alphabetical order if no M3U found
   - Use `shuffle:true` to randomize track order
-- `/volume level:<0-100>` - Set default volume for current and future tracks
+  - Respects persistent shuffle mode if enabled
+
+### Queue Control
+- `/shuffle` - Toggle shuffle mode or reshuffle current playlist (NEW in Build 58)
+  - If playing: Reshuffles and restarts playlist from beginning
+  - If idle: Enables shuffle mode for next `/playdir`
+  - Persistent across sessions
 - `/skip` - Skip the current track
-- `/stop` - Stop playback and clear the queue
+- `/stop` - Stop playback immediately and clear the queue
+- `/end` - End playback after current song finishes (NEW in Build 58)
+
+### Settings
+- `/volume level:<0-100>` - Set default volume for current and future tracks
 
 ## Configuration
 
@@ -121,8 +133,8 @@ You should see:
 ### Bot Configuration (index-lavalink.js)
 
 Edit these constants if needed:
-- `VERSION` - Bot version (currently 1.0)
-- `BUILD` - Build number (currently 57)
+- `VERSION` - Bot version (currently 1.01)
+- `BUILD` - Build number (currently 58)
 - `MUSIC_HTTP_BASE` - HTTP music server URL
 - `MUSIC_LOCAL_BASE` - Local music directory path
 
@@ -167,6 +179,7 @@ After extensive testing through 57 builds, Lavalink proved superior to FFmpeg:
 
 ## Version History
 
+- **1.01 (Build 58)** - Added `/shuffle` and `/end` commands, queue control bugfixes
 - **1.0 (Build 57)** - STABLE RELEASE - Optimized Lavalink with HIGH quality settings
 - **0.40A (Build 56)** - Lavalink + Nginx HTTP streaming
 - **0.40A (Build 55)** - Initial Lavalink integration
