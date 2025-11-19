@@ -1,5 +1,5 @@
 // index.js — BardBot: Discord Audio Playback Bot
-// Version: 0.31 | Build: 52 - QA Fix: Removed -re flag (caused hang)
+// Version: 0.31 | Build: 53 - Added FFmpeg encoder buffer settings (-bufsize, -maxrate)
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,7 +31,7 @@ const {
 const prism = require('prism-media');
 
 const VERSION = '0.31';
-const BUILD = 52;
+const BUILD = 53;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -146,10 +146,10 @@ function makeFfmpegResource(localOrUrl, volume01) {
   const inputArg = isRemote ? localOrUrl : path.resolve(localOrUrl);
 
   console.log(`🎵 Source: ${inputArg}`);
-  console.log(`📊 Build ${BUILD}: QA Fix - Jitter buffer optimization (no -re)`)
+  console.log(`📊 Build ${BUILD}: FFmpeg encoder buffer fix (-bufsize 512k, -maxrate 128k)`)
   console.log(`🎚️ Volume: ${Math.round(volume01 * 10)}/10`);
   console.log(`🎯 Quality: 48kHz stereo Opus @ 64kbps (Discord default)`);
-  console.log(`⚡ Optimization: Minimal buffering (16KB), Discord natural rate limiting`);
+  console.log(`⚡ Optimization: Encoder buffer 512KB prevents rate fluctuations`);
 
   return new Promise((resolve, reject) => {
     const args = [
@@ -171,6 +171,8 @@ function makeFfmpegResource(localOrUrl, volume01) {
       '-af', `volume=${volume01}:precision=fixed`,
       // Output Ogg Opus - native Discord format
       '-c:a', 'libopus',
+      '-bufsize', '512k',   // Encoder buffer size (prevents rate fluctuations)
+      '-maxrate', '128k',   // Maximum bitrate ceiling (maintains consistent encoding)
       '-b:a', '64k',        // Reduced to Discord's default 64kbps
       '-vbr', 'on',         // Variable bitrate for better quality/size ratio
       '-frame_duration', '20', // 20ms frames (Discord standard)

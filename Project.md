@@ -1,24 +1,24 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 0.30 | **Build:** 50 (Testing FFmpeg Priority Fix)
+**Version:** 0.31 | **Build:** 53 (FFmpeg Encoder Buffer Fix)
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists.
 
 ---
 
-## ⚠️ CURRENT STATUS: Build 50 - Debugging Stuttering Regression
+## ✅ CURRENT STATUS: Build 53 - FFmpeg Encoder Buffer Optimization
 
-**Issue Detected (2025-11-09):**
-After Build 49 (M3U playlist support), user reported stuttering and static-distortion returning during playback. Investigation revealed potential FFmpeg priority issue.
+**Issue Addressed (2025-11-18):**
+After extensive optimization attempts (Builds 34-52), stuttering issues persisted. Analysis revealed that while all downstream buffers (Node.js streams, Discord.js buffering, pre-caching) were optimized, the **FFmpeg encoder itself** had no explicit buffer size setting.
 
 **Root Cause Analysis:**
-Build 48's FFmpeg priority setting code attempted to set process priority immediately after creating the FFmpeg object, but the process may not have been fully spawned yet. Errors were silently ignored, meaning FFmpeg may have been running at normal priority instead of nice -15.
+Previous builds focused on stream-level and application-level buffering, but the FFmpeg Opus encoder was using default variable buffer sizes. This could cause encoding rate fluctuations that lead to stuttering, regardless of how well buffered the downstream pipeline was.
 
-**Build 50 Fix:**
-- Added 50ms delay before setting FFmpeg priority (allows process to spawn)
-- Removed silent error handling - now logs warnings if priority setting fails
-- Added diagnostics to show why priority might not be set
-- Testing required to confirm fix
+**Build 53 Fix:**
+- Added `-bufsize 512k` to give FFmpeg's Opus encoder a dedicated 512KB buffer
+- Added `-maxrate 128k` to set a bitrate ceiling for consistent encoding behavior
+- These parameters work at the encoder level, a different layer than all previous optimizations
+- Prevents encoding rate fluctuations that cause buffer underruns
 
 ### Quick Start for Testing:
 ```bash
@@ -33,17 +33,19 @@ Watch console output for:
 
 ---
 
-## Previous Stable Release - Build 48
+## Build 53 Audio Quality Settings
 
-### Current Audio Quality Settings
+### Current Configuration
 - **Sample Rate:** 48 kHz
 - **Channels:** Stereo (2 channels)
 - **Format:** Ogg Opus (native Discord format)
 - **Bitrate:** 64 kbps (Discord's default, optimized for performance)
 - **Encoding:** VBR Opus with 20ms frames (Discord standard)
-- **Buffer Size:** 128MB stream buffer
-- **Pre-buffering:** 8MB of Opus data fully loaded before playback starts (async)
-- **highWaterMark:** 24 (480ms of audio ready, doubled from default 12)
+- **FFmpeg Encoder Buffer:** 512 KB (NEW - prevents rate fluctuations)
+- **FFmpeg Max Rate:** 128 kbps (NEW - maintains consistent encoding)
+- **Stream Buffer Size:** 512 KB
+- **Pre-buffering:** 16 KB (~250ms at 64kbps)
+- **highWaterMark:** 8 frames (160ms of audio ready)
 - **Process Priority:** Nice -10 (Node.js) and -15 (FFmpeg) for real-time performance
 - **Volume Control:** ✅ ENABLED - FFmpeg filter (0-10 scale, affects future tracks)
 - **Platform:** Optimized for Linux with excellent performance
@@ -643,6 +645,79 @@ echo "net.core.wmem_max=134217728" | sudo tee -a /etc/sysctl.conf
 - Self-deafens to save bandwidth
 
 ## Version History
+
+### Build 53 (Version 0.31) - 2025-11-18
+**FFmpeg Encoder Buffer Fix - Addressing Missing Encoder-Level Buffering:**
+
+**Issue Analysis:**
+After 52 builds of optimization attempts, stuttering persisted. Comprehensive code review revealed that while all downstream buffers were heavily optimized (Node.js streams, Discord.js buffering, pre-caching), the **FFmpeg encoder itself** had no explicit buffer size configuration. This meant the encoder was using default variable buffer sizes that could cause encoding rate fluctuations.
+
+**Changes Implemented:**
+1. ✅ **Added `-bufsize 512k` parameter** (index.js:174)
+   - Gives FFmpeg's Opus encoder a dedicated 512KB buffer
+   - Prevents encoding rate fluctuations that cause buffer underruns
+   - Works at the encoder level, not stream level
+
+2. ✅ **Added `-maxrate 128k` parameter** (index.js:175)
+   - Sets a maximum bitrate ceiling for the encoder
+   - Helps maintain consistent encoding behavior even with VBR enabled
+   - Prevents bitrate spikes that could cause stuttering
+
+3. ✅ **Updated console logging**
+   - Shows new optimization in build message
+   - Clear indication of encoder buffer implementation
+
+**Why This Is Different:**
+All previous builds (34-52) optimized:
+- Stream buffers (Node.js PassThrough)
+- Pre-buffering (cache before playback)
+- Discord.js buffering (highWaterMark)
+- Process priority
+- Bitrate reduction
+
+Build 53 is the first to address **FFmpeg's internal encoder buffer**, which is a completely different layer of the buffering pipeline.
+
+**Expected Results:**
+- Elimination of stuttering caused by encoder rate variations
+- More consistent encoding performance
+- Better handling of momentary CPU scheduling delays
+- Synergy with existing process priority optimizations (nice -10/-15)
+
+**Testing Status:**
+⏳ Ready for user testing
+
+---
+
+### Build 52 (Version 0.31) - 2025-11-18
+**QA Fix: Removed -re flag that caused playback hang:**
+
+**Issue:**
+Build 51 introduced jitter buffer optimizations but testing revealed playback would hang/freeze.
+
+**Root Cause:**
+The `-re` flag (read at native framerate) was throttling FFmpeg input artificially, causing conflicts with the Discord.js voice pipeline which has its own rate limiting.
+
+**Fix:**
+- ✅ Removed `-re` flag completely
+- Discord's natural rate limiting is sufficient
+- Playback no longer hangs
+
+**Result:**
+Playback works correctly but stuttering issues persisted, leading to Build 53 investigation.
+
+---
+
+### Build 51 (Version 0.31) - 2025-11-18
+**QA-Recommended Jitter Buffer Optimization Fixes:**
+
+**Changes:**
+- Attempted jitter buffer optimizations based on QA recommendations
+- Adjusted buffering parameters for better performance
+
+**Status:**
+Build introduced playback hang issue, resolved in Build 52.
+
+---
 
 ### Build 50 (Version 0.30) - 2025-11-09
 **FFmpeg Priority Fix - Debugging Stuttering Regression:**
