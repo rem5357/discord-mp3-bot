@@ -18,8 +18,3 @@ Thumbs.db
 *.swp
 *.swo
 *~
-
-# Lavalink
-Lavalink.jar
-application.yml
-logs/
