@@ -9,7 +9,7 @@ lavalink:
   server:
     password: "bardbot-secure-password-2025"
     sources:
-      youtube: false
+      youtube: true   # Required by lavalink-client for validation
       bandcamp: false
       soundcloud: false
       twitch: false
