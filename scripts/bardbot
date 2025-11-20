@@ -1,0 +1,32 @@
+#\!/bin/bash
+# BardBot launcher script - Run from anywhere
+
+PROJECT_DIR="/home/mithroll/Projects/discord-mp3-bot"
+LOGFILE="$PROJECT_DIR/bardbot.log"
+
+echo "Starting BardBot v1.1 (Build 64)..."
+
+# Check if already running
+if pgrep -f "node.*index-lavalink.js" > /dev/null; then
+    echo "BardBot is already running"
+    echo "Use bardbotstop to stop it first."
+    exit 1
+fi
+
+# Check if Lavalink is running
+if \! systemctl is-active --quiet lavalink; then
+    echo "Lavalink service is not running"
+    echo "Starting Lavalink..."
+    sudo systemctl start lavalink
+    sleep 3
+fi
+
+# Start the bot
+cd "$PROJECT_DIR" || exit 1
+echo "Launching BardBot from console..."
+echo "Output will appear in this terminal"
+echo "Press Ctrl+C to stop, or use bardbotstop from another terminal"
+echo ""
+
+# Run in foreground so user can see output
+node index-lavalink.js

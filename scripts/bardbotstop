@@ -1,0 +1,31 @@
+#!/bin/bash
+# BardBot stop script - Kill running BardBot process
+
+echo "Stopping BardBot..."
+
+# Find the BardBot process
+PID=$(pgrep -f "node.*index-lavalink.js")
+
+if [ -z "$PID" ]; then
+    echo "BardBot is not running."
+    exit 1
+fi
+
+# Kill the process gracefully
+kill $PID
+
+# Wait a moment and check if it stopped
+sleep 1
+
+if pgrep -f "node.*index-lavalink.js" > /dev/null; then
+    echo "Process did not stop gracefully, forcing..."
+    kill -9 $PID
+    sleep 1
+fi
+
+if ! pgrep -f "node.*index-lavalink.js" > /dev/null; then
+    echo "BardBot stopped successfully."
+else
+    echo "Failed to stop BardBot (PID: $PID)"
+    exit 1
+fi

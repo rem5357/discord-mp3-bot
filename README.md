@@ -33,6 +33,16 @@ Bot → Lavalink Server (Java) → Discord Voice Gateway
 
 ## Quick Start
 
+### Running BardBot (TL;DR)
+
+Once installed, simply run from anywhere:
+```bash
+bardbot          # Start the bot
+bardbotstop      # Stop the bot
+```
+
+See [USAGE.md](USAGE.md) for complete usage guide.
+
 ### Prerequisites
 
 - **Node.js** (v18 or higher recommended)
@@ -78,7 +88,11 @@ sudo systemctl start lavalink.service
 
 7. **Run the bot:**
 ```bash
-node index-lavalink.js
+# Simple command from anywhere:
+bardbot
+
+# Or run directly:
+# node index-lavalink.js
 ```
 
 You should see:
@@ -178,8 +192,10 @@ After extensive testing through 57 builds, Lavalink proved superior to FFmpeg:
 
 ## Documentation
 
+- **[USAGE.md](USAGE.md)** - How to run and manage BardBot (start here!)
 - **[Project.md](Project.md)** - Complete development history and technical details
 - **[LAVALINK-INTEGRATION.md](LAVALINK-INTEGRATION.md)** - Lavalink setup guide
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Advanced deployment options (systemd services)
 - **[nginx-music.conf](nginx-music.conf)** - Nginx configuration reference
 
 ## Version History
