@@ -1,0 +1,62 @@
+server:
+  port: 2333
+  address: 127.0.0.1  # Localhost only for security
+
+lavalink:
+  plugins:
+    # - dependency: "com.github.Topis-Lavalink-Plugins:Topis-Source-Managers-Plugin:v4.3.0"
+    # - dependency: "com.dunctebot:skybot-lavalink-plugin:1.7.2"
+
+  server:
+    password: "bardbot-secure-password-2025"
+    sources:
+      youtube: true
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      http: true      # Required for Discord attachments and URLs
+      local: true     # Required for playing local files
+    filters: # Enabled audio filters
+      volume: true
+      equalizer: true
+      karaoke: true
+      timescale: true
+      tremolo: true
+      vibrato: true
+      distortion: true
+      rotation: true
+      channelMix: true
+      lowPass: true
+    bufferDurationMs: 600    # Increased from 400 for better GC pause handling
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10  # 0-10, higher is better quality (already maximum)
+    resamplingQuality: HIGH  # Changed from LOW for maximum audio quality (HTTP sources)
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    playerUpdateInterval: 1  # Reduced from 5 for more responsive playback tracking
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+    gc-warnings: true
+
+metrics:
+  prometheus:
+    enabled: false
+    endpoint: /metrics
+
+sentry:
+  dsn: ""
+  environment: "production"
+
+logging:
+  file:
+    path: ./logs/
+
+  level:
+    root: INFO
+    lavalink: INFO
+
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 30
