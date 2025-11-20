@@ -4,39 +4,38 @@ server:
 
 lavalink:
   plugins:
-    # - dependency: "com.github.Topis-Lavalink-Plugins:Topis-Source-Managers-Plugin:v4.3.0"
-    # - dependency: "com.dunctebot:skybot-lavalink-plugin:1.7.2"
+    # No plugins needed for local MP3 playback
 
   server:
     password: "bardbot-secure-password-2025"
     sources:
-      youtube: true
-      bandcamp: true
-      soundcloud: true
-      twitch: true
-      vimeo: true
-      http: true      # Required for Discord attachments and URLs
-      local: true     # Required for playing local files
-    filters: # Enabled audio filters
-      volume: true
-      equalizer: true
-      karaoke: true
-      timescale: true
-      tremolo: true
-      vibrato: true
-      distortion: true
-      rotation: true
-      channelMix: true
-      lowPass: true
-    bufferDurationMs: 600    # Increased from 400 for better GC pause handling
-    frameBufferDurationMs: 5000
-    opusEncodingQuality: 10  # 0-10, higher is better quality (already maximum)
-    resamplingQuality: HIGH  # Changed from LOW for maximum audio quality (HTTP sources)
-    trackStuckThresholdMs: 10000
-    useSeekGhosting: true
-    playerUpdateInterval: 1  # Reduced from 5 for more responsive playback tracking
-    youtubeSearchEnabled: true
-    soundcloudSearchEnabled: true
+      youtube: false
+      bandcamp: false
+      soundcloud: false
+      twitch: false
+      vimeo: false
+      http: true      # Required for Discord attachment URLs
+      local: true     # Required for local files
+    filters:
+      volume: true    # Only filter used by the bot
+
+    # ⭐ Critical Discord voice gateway settings
+    bufferDurationMs: 600              # Network jitter buffer (good for handling latency variance)
+    frameBufferDurationMs: 1000        # 1s frame buffer prevents CPU spike underruns (was 5000)
+    opusSendInterval: 20               # ⭐ CRITICAL: Discord standard 20ms Opus frame interval
+    opusEncodingQuality: 10            # Maximum quality (0-10) for 128 kbps Discord channel
+    resamplingQuality: HIGH            # Best quality for HTTP sources (Discord URLs)
+
+    # Playback settings
+    trackStuckThresholdMs: 10000       # 10s timeout before declaring track stuck
+    useSeekGhosting: true              # Smooth seeking behavior
+    playerUpdateInterval: 5            # 5s Discord update interval (was 1, Lavalink default)
+
+    # Search (disabled - not used by bot)
+    youtubeSearchEnabled: false
+    soundcloudSearchEnabled: false
+
+    # Monitoring
     gc-warnings: true
 
 metrics:
