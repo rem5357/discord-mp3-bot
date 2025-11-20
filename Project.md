@@ -1,18 +1,59 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 1.02 | **Build:** 59 - Remote URL Playback ✅
+**Version:** 1.1 | **Build:** 64 - Remote URL Playback with Shuffle ✅
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists from local and remote sources.
 
 **Primary Version:**
-- **Build 59 (1.02)** - Lavalink-based with local and remote playback (this branch: `lavalink-experiment`)
+- **Build 64 (1.1)** - Lavalink-based with local and remote playback with full shuffle support (this branch: `lavalink-experiment`)
 - **Build 53 (0.31)** - FFmpeg-based (legacy - master branch)
 
 ---
 
-## ✅ CURRENT STATUS: Build 59 - Remote URL Support - Production Ready!
+## ✅ CURRENT STATUS: Build 64 - Remote URL Playback with Shuffle - Production Ready!
 
-### Build 59 - Remote URL Playback (2025-11-19)
+### Build 64 - Production Release (2025-11-19)
+
+**Status:** ✅ STABLE RELEASE - Remote URL playback fully integrated with shuffle support
+
+**Enhancements:**
+- Removed debug logging for cleaner production output
+- Version bump to 1.1 (Build 64)
+- All remote URL features tested and verified working
+- Complete integration of `/playurl` with `/shuffle` command
+
+**Build History (59-64):**
+
+**Build 63** - `/shuffle` Remote URL Support
+- Fixed `/shuffle` command to work with remote URLs from `/playurl`
+- Added URL detection logic (http:// or https://) to use remote URLs directly
+- Previously attempted to convert remote URLs to local HTTP paths (incorrect)
+- Now correctly handles three cases:
+  1. Remote URLs (http/https) - use directly
+  2. Local files in MUSIC_LOCAL_BASE - convert to HTTP URL
+  3. Other local paths - use fallback conversion
+
+**Build 62** - Apostrophe Parsing Fix
+- Fixed regex pattern to handle apostrophes in filenames (e.g., "Baldur's Gate")
+- Changed from single combined pattern `[^"']+` to separate patterns:
+  - `/href="([^"]+\.(mp3|...))"/gi` - allows apostrophes inside double quotes
+  - `/href='([^']+\.(mp3|...))'/gi` - allows double quotes inside single quotes
+- Resolved issue where filenames with apostrophes were truncated
+
+**Build 60-61** - Debug and Diagnostics
+- Added HTML sample output to debug URL parsing
+- Increased debug output from 500 to 2000 characters
+- Improved regex patterns to handle multiple HTML formats
+- Added multiple pattern attempts for better compatibility
+
+**Build 59** - Initial `/playurl` Implementation
+- Added `fetchAudioUrlsFromRemote()` function
+- HTML parsing for audio file links
+- Automatic URL encoding and absolute URL conversion
+
+---
+
+## Build 59 - Remote URL Playback (2025-11-19)
 
 **New Feature:**
 

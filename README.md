@@ -1,6 +1,6 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 1.02 | **Build:** 59 - Remote URL Playback ✅
+**Version:** 1.1 | **Build:** 64 - Remote URL Playback with Shuffle ✅
 
 A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists from local and remote sources. **100% feature complete with zero stuttering and advanced queue control!**
 
@@ -83,7 +83,7 @@ node index-lavalink.js
 
 You should see:
 ```
-🎵 BardBot v1.02 (Build 59) - Lavalink Edition
+🎵 BardBot v1.1 (Build 64) - Lavalink Edition
 ✅ Logged in as BardBot#...
 ✅ Lavalink node connected: local-node
 Slash commands: /playfile, /volume, /playdir, /playurl, /skip, /stop, /shuffle, /end
@@ -184,7 +184,8 @@ After extensive testing through 57 builds, Lavalink proved superior to FFmpeg:
 
 ## Version History
 
-- **1.02 (Build 59)** - Added `/playurl` command for remote URL directory playback
+- **1.1 (Build 64)** - STABLE RELEASE - Remote URL playback with full `/shuffle` support
+- **1.02 (Build 59-63)** - Added `/playurl` command, fixed apostrophe parsing, `/shuffle` remote URL support
 - **1.01 (Build 58)** - Added `/shuffle` and `/end` commands, queue control bugfixes
 - **1.0 (Build 57)** - STABLE RELEASE - Optimized Lavalink with HIGH quality settings
 - **0.40A (Build 56)** - Lavalink + Nginx HTTP streaming

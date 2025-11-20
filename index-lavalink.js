@@ -1,5 +1,5 @@
 // index-lavalink.js — BardBot: Discord Audio Playback Bot (Lavalink Edition)
-// Version: 1.02 | Build: 59 - Added /playurl command for remote directory playback
+// Version: 1.1 | Build: 64 - Remote URL playback with /shuffle support
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -8,8 +8,8 @@ const fetch = require('node-fetch');
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const { LavalinkManager } = require('lavalink-client');
 
-const VERSION = '1.02';
-const BUILD = 59;
+const VERSION = '1.1';
+const BUILD = 64;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -69,25 +69,52 @@ async function fetchAudioUrlsFromRemote(baseUrl) {
     const html = await response.text();
     const audioUrls = [];
 
-    // Regular expression to find links to audio files
-    // Matches href="filename.mp3" or href="/path/filename.mp3" etc.
-    const linkRegex = /href=["']([^"']+\.(mp3|wav|ogg|opus|flac|m4a|aac|webm))["']/gi;
-    let match;
+    // Multiple regex patterns to handle different HTML formats
+    const patterns = [
+      // Match href with double quotes (allows apostrophes inside)
+      /href="([^"]+\.(mp3|wav|ogg|opus|flac|m4a|aac|webm))"/gi,
+      // Match href with single quotes (allows double quotes inside)
+      /href='([^']+\.(mp3|wav|ogg|opus|flac|m4a|aac|webm))'/gi,
+      // Apache directory listing format with spaces around =
+      /href\s*=\s*"([^"]+\.(mp3|wav|ogg|opus|flac|m4a|aac|webm))"/gi,
+      // Without quotes (some servers)
+      /href=([^\s>]+\.(mp3|wav|ogg|opus|flac|m4a|aac|webm))[\s>]/gi
+    ];
 
-    while ((match = linkRegex.exec(html)) !== null) {
-      let audioUrl = match[1];
+    // Try each pattern
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0; // Reset regex
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        let audioUrl = match[1];
 
-      // Convert relative URLs to absolute
-      if (audioUrl.startsWith('/')) {
-        // Absolute path on same domain
-        const urlObj = new URL(baseUrl);
-        audioUrl = `${urlObj.protocol}//${urlObj.host}${audioUrl}`;
-      } else if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://')) {
-        // Relative path
-        audioUrl = new URL(audioUrl, baseUrl).href;
+        // Skip parent directory links
+        if (audioUrl === '..' || audioUrl === '../') continue;
+
+        // Convert relative URLs to absolute
+        if (audioUrl.startsWith('/')) {
+          // Absolute path on same domain
+          const urlObj = new URL(baseUrl);
+          audioUrl = `${urlObj.protocol}//${urlObj.host}${audioUrl}`;
+        } else if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://')) {
+          // Relative path - make sure baseUrl ends with /
+          const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+          audioUrl = new URL(audioUrl, base).href;
+        }
+
+        // Avoid duplicates
+        if (!audioUrls.includes(audioUrl)) {
+          audioUrls.push(audioUrl);
+        }
       }
 
-      audioUrls.push(audioUrl);
+      // If we found files with this pattern, stop trying others
+      if (audioUrls.length > 0) break;
+    }
+
+    console.log(`📊 Found ${audioUrls.length} audio file(s) at ${baseUrl}`);
+    if (audioUrls.length > 0) {
+      console.log(`First file: ${audioUrls[0]}`);
     }
 
     return audioUrls;
@@ -595,13 +622,19 @@ client.on('interactionCreate', async interaction => {
         let loadedCount = 0;
         for (const trackPath of shuffledPaths) {
           try {
-            const basename = path.basename(trackPath);
             let httpUrl;
-            if (trackPath.startsWith(MUSIC_LOCAL_BASE)) {
+
+            // If it's already a remote URL (from /playurl), use it directly
+            if (trackPath.startsWith('http://') || trackPath.startsWith('https://')) {
+              httpUrl = trackPath;
+            } else if (trackPath.startsWith(MUSIC_LOCAL_BASE)) {
+              // Local file - convert to HTTP URL
               const relativePath = trackPath.substring(MUSIC_LOCAL_BASE.length);
               const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
               httpUrl = `${MUSIC_HTTP_BASE}${encodedPath}`;
             } else {
+              // Fallback for other local paths
+              const basename = path.basename(trackPath);
               const dirname = path.basename(path.dirname(trackPath));
               httpUrl = `${MUSIC_HTTP_BASE}/${dirname}/${encodeURIComponent(basename)}`;
             }
