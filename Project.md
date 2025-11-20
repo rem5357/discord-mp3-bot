@@ -1,16 +1,99 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 1.1 | **Build:** 64 - Remote URL Playback with Shuffle ✅
+**Version:** 1.1 | **Build:** 67 - Stable Release ✅
 
 A Discord bot for playing media files (MP3s, WAVs, and other audio formats) in voice channels, supporting both individual file playback and directory-based playlists from local and remote sources.
 
 **Primary Version:**
-- **Build 64 (1.1)** - Lavalink-based with local and remote playback with full shuffle support (this branch: `lavalink-experiment`)
-- **Build 53 (0.31)** - FFmpeg-based (legacy - master branch)
+- **Build 67 (1.1)** - Lavalink-based with command-line execution (master branch)
+- **Build 53 (0.31)** - FFmpeg-based (archived as index-legacy.js)
 
 ---
 
-## ✅ CURRENT STATUS: Build 64 - Remote URL Playback with Shuffle - Production Ready!
+## ✅ CURRENT STATUS: Build 67 - Stable Release - Production Ready!
+
+### Build 67 - Bug Fix (2025-11-19)
+
+**Critical Bug Fix:**
+Fixed crash when using `/stop` and `/shuffle` commands.
+
+**Issue:**
+- `player.stop()` is not a valid method in lavalink-client
+- Caused `TypeError: player.stop is not a function` crash
+- Bot would crash when stopping playback or reshuffling
+
+**Fix:**
+- `/stop`: Changed to use `player.destroy()` only
+- `/shuffle`: Removed invalid `player.stop()` call, clear queue and current track
+- Both commands now work without crashing
+
+**Code Changes:**
+```javascript
+// Before (crashed):
+player.queue.tracks = [];
+await player.stop();        // Not a function!
+
+// After (works):
+player.queue.tracks = [];
+await player.destroy();     // Correct method
+```
+
+---
+
+### Build 66 - Command-Based Execution (2025-11-19)
+
+**Major Change:** Replaced systemd service with global command-line execution.
+
+**Reason:**
+- Service-based execution caused severe stuttering
+- Running as systemd service had resource constraints
+- Nearly unlistenable audio quality when run as service
+
+**Solution:**
+- Removed `bardbot.service` from systemd
+- Created global `bardbot` command in `/usr/local/bin/`
+- Created global `bardbotstop` command in `/usr/local/bin/`
+- Commands work from any directory
+
+**Benefits:**
+- ✅ **Zero stuttering** - Runs with full process priority
+- ✅ **Real-time output** - All logs visible in terminal
+- ✅ **Simple management** - Type `bardbot` to start, `bardbotstop` to stop
+- ✅ **Easy debugging** - See all output in real-time
+
+**Implementation:**
+- `bardbot` script auto-starts Lavalink if needed
+- Runs bot in foreground for monitoring
+- Prevents multiple instances
+- Press Ctrl+C or use `bardbotstop` to stop
+
+**Lavalink Status:**
+- Still runs as systemd service (auto-starts on boot)
+- No stuttering issues with Lavalink as service
+
+---
+
+### Build 65 - Cleanup and Deployment (2025-11-19)
+
+**Cleanup:**
+- Archived FFmpeg version as `index-legacy.js` with warning header
+- Deleted old experimental branches (`claude/fix-*`)
+- `.gitignore` already included necessary entries
+
+**Deployment Setup:**
+- Created `bardbot.service` for systemd (later removed in Build 66)
+- Created `install-services.sh` installation script
+- Created `DEPLOYMENT.md` with deployment guide
+
+**Service Features (Build 65):**
+- Auto-restart on failure
+- Systemd journal logging
+- Security hardening
+- Restart limits
+
+**Note:** Service approach was abandoned in Build 66 due to stuttering issues.
+
+---
 
 ### Build 64 - Production Release (2025-11-19)
 

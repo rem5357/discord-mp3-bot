@@ -1,0 +1,1211 @@
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Times New Roman;}{\f1 Courier New;}}
+{\colortbl;\red0\green0\blue0;\red0\green0\blue255;\red128\green0\blue128;}
+
+\f0\fs28\b BardBot - Discord Audio Playback Bot\b0\fs24\par
+\fs20 Version 1.1 | Build 67 - Complete User Manual\par
+\par
+
+\fs24\b TABLE OF CONTENTS\b0\fs20\par
+\par
+1. Introduction\par
+2. Technologies Used\par
+   2.1 Discord Developer Portal\par
+   2.2 Lavalink Audio Server\par
+   2.3 Discord.js Library\par
+   2.4 Node.js Application (index-lavalink.js)\par
+   2.5 Nginx HTTP Server\par
+3. Documentation Overview\par
+4. System Architecture\par
+5. Request Flow Diagram\par
+6. Commands Reference\par
+7. Installation & Setup\par
+8. Running BardBot\par
+9. Glossary of Terms\par
+10. Troubleshooting\par
+\par
+\page
+
+\fs24\b 1. INTRODUCTION\b0\fs20\par
+\par
+BardBot is a high-quality Discord audio playback bot designed for playing audio files in Discord voice channels. It supports both individual file playback and directory-based playlists from local and remote sources.\par
+\par
+\b Key Features:\b0\par
+- Zero stuttering with Lavalink professional audio processing\par
+- Support for multiple audio formats (MP3, WAV, OGG, FLAC, Opus, M4A, AAC, WebM)\par
+- Local and remote URL playback\par
+- M3U playlist support\par
+- Shuffle mode for randomized playback\par
+- Full volume control (0-100 scale)\par
+- Advanced queue management\par
+\par
+\b Development History:\b0\par
+BardBot went through 67 builds of refinement. Initially built with FFmpeg (Builds 1-53), persistent stuttering issues led to a complete architectural redesign using Lavalink (Builds 54-67), which eliminated all audio quality problems.\par
+\par
+\page
+
+\fs24\b 2. TECHNOLOGIES USED\b0\fs20\par
+\par
+\b 2.1 Discord Developer Portal\b0\par
+\par
+The Discord Developer Portal (https://discord.com/developers) is where you create and configure your Discord bot application.\par
+\par
+\b Setup Process:\b0\par
+1. Create a new Application\par
+2. Navigate to the "Bot" section\par
+3. Click "Add Bot" to create a bot user\par
+4. Copy the bot token (keep this secret!)\par
+5. Enable "SERVER MEMBERS INTENT" and "MESSAGE CONTENT INTENT"\par
+6. Under OAuth2 > URL Generator:\par
+   - Select scopes: "bot" and "applications.commands"\par
+   - Select bot permissions: "Connect", "Speak", "Use Voice Activity"\par
+7. Use generated URL to invite bot to your server\par
+\par
+\b Required Permissions:\b0\par
+- Connect (join voice channels)\par
+- Speak (play audio)\par
+- Use Slash Commands (command interaction)\par
+- Send Messages (respond to commands)\par
+\par
+\b Environment Configuration:\b0\par
+The bot token is stored in a .env file:\par
+\f1 DISCORD_TOKEN=your_bot_token_here\par
+DEV_GUILD_ID=your_server_id_here\f0\par
+\par
+\page
+
+\b 2.2 Lavalink Audio Server\b0\par
+\par
+Lavalink is a standalone audio delivery node based on Lavaplayer. It handles all audio processing, encoding, and streaming to Discord's voice servers.\par
+\par
+\b Why Lavalink?\b0\par
+After 53 builds attempting to optimize FFmpeg-based playback, Lavalink was adopted (Build 55) and immediately solved all stuttering issues. Lavalink provides:\par
+- Professional-grade audio processing\par
+- Better resource isolation\par
+- Scalable architecture\par
+- Reliable connection handling\par
+- Superior buffer management\par
+\par
+\b Configuration (application.yml):\b0\par
+\f1 server:\par
+  port: 2333\par
+  address: 127.0.0.1\par
+\par
+lavalink:\par
+  server:\par
+    password: "bardbot-secure-password-2025"\par
+    sources:\par
+      http: true\par
+      local: true\par
+    bufferDurationMs: 600\par
+    youtubePlaylistLoadLimit: 6\par
+\par
+plugins:\par
+  lavasrc:\par
+    providers:\par
+      - "ytsearch:%ISRC%"\par
+    sources:\par
+      spotify: false\par
+      applemusic: false\par
+\f0\par
+\par
+\b Key Settings:\b0\par
+- \b bufferDurationMs: 600\b0  - Smooth playback with GC protection\par
+- \b resamplingQuality: HIGH\b0  - Maximum audio fidelity\par
+- \b opusEncodingQuality: 10\b0  - Highest Opus encoding quality\par
+- \b playerUpdateInterval: 1\b0  - Responsive playback tracking\par
+\par
+\b Running Lavalink:\b0\par
+Lavalink runs as a systemd service:\par
+\f1 sudo systemctl start lavalink\par
+sudo systemctl status lavalink\f0\par
+\par
+\page
+
+\b 2.3 Discord.js Library\b0\par
+\par
+Discord.js is a powerful Node.js library for interacting with the Discord API. It handles all Discord communication including:\par
+- Slash command registration\par
+- Voice channel connection\par
+- User interaction handling\par
+- Event management\par
+\par
+\b Key Components Used:\b0\par
+\par
+\b Client:\b0  Main bot instance that connects to Discord\par
+\f1 const client = new Client(\{\par
+  intents: [\par
+    GatewayIntentBits.Guilds,\par
+    GatewayIntentBits.GuildVoiceStates,\par
+    GatewayIntentBits.GuildMessages\par
+  ]\par
+\});\f0\par
+\par
+\b REST API:\b0  For registering slash commands\par
+\f1 const rest = new REST().setToken(TOKEN);\par
+await rest.put(\par
+  Routes.applicationGuildCommands(client.user.id, DEV_GUILD_ID),\par
+  \{ body: commands \}\par
+);\f0\par
+\par
+\b SlashCommandBuilder:\b0  For defining command structure\par
+\f1 new SlashCommandBuilder()\par
+  .setName('playdir')\par
+  .setDescription('Play audio files from a directory')\par
+  .addStringOption(option =>\par
+    option.setName('dir')\par
+      .setDescription('Directory path')\par
+      .setRequired(true)\par
+  )\f0\par
+\par
+\page
+
+\b 2.4 Node.js Application (index-lavalink.js)\b0\par
+\par
+The main bot application (index-lavalink.js) is a 686-line Node.js program that orchestrates all components.\par
+\par
+\b Architecture:\b0\par
+\par
+\b 1. Initialization (Lines 1-200):\b0\par
+   - Load environment variables\par
+   - Import required libraries\par
+   - Define constants and configuration\par
+   - Set up helper functions (parseM3U, shuffleArray)\par
+   - Initialize Lavalink connection\par
+\par
+\b 2. Command Registration (Lines 200-250):\b0\par
+   - Define all slash commands\par
+   - Register commands with Discord API\par
+   - Set up command descriptions and parameters\par
+\par
+\b 3. Event Handlers (Lines 250-300):\b0\par
+   - clientReady: Bot startup\par
+   - nodeConnect: Lavalink connection\par
+   - trackStart: Track playback begins\par
+   - trackEnd: Track playback ends\par
+   - queueEnd: Playlist completes\par
+\par
+\b 4. Command Handlers (Lines 300-680):\b0\par
+   - /playfile: Upload and play files\par
+   - /playdir: Play local directories\par
+   - /playurl: Play remote URLs\par
+   - /volume: Volume control\par
+   - /skip: Skip current track\par
+   - /stop: Stop playback\par
+   - /shuffle: Shuffle playlist\par
+   - /end: End after current song\par
+\par
+\b Key Functions:\b0\par
+\par
+\b parseM3U(m3uPath, baseDir):\b0\par
+Parses M3U playlist files and returns array of track paths.\par
+\par
+\b fetchAudioUrlsFromRemote(baseUrl):\b0\par
+Fetches HTML directory listing and extracts audio file URLs using regex patterns.\par
+\par
+\b shuffleArray(array):\b0\par
+Fisher-Yates shuffle algorithm for randomizing track order.\par
+\par
+\page
+
+\b 2.5 Nginx HTTP Server\b0\par
+\par
+Nginx serves local music files over HTTP so Lavalink can stream them. This architecture provides better performance than direct file access.\par
+\par
+\b Configuration (nginx-music.conf):\b0\par
+\f1 server \{\par
+  listen 8080;\par
+  server_name localhost;\par
+\par
+  # Performance optimizations\par
+  sendfile on;\par
+  tcp_nopush on;\par
+  tcp_nodelay on;\par
+\par
+  # Buffer optimizations\par
+  output_buffers 8 256k;\par
+  sendfile_max_chunk 512k;\par
+  read_ahead 512k;\par
+\par
+  location / \{\par
+    root /var/www;\par
+    autoindex on;\par
+\par
+    # CORS headers for Lavalink\par
+    add_header Access-Control-Allow-Origin *;\par
+    add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS";\par
+\par
+    # Caching for audio files\par
+    location ~ \\.(mp3|wav|flac|ogg|m4a|aac|opus|webm)$ \{\par
+      add_header Cache-Control "public, max-age=31536000, immutable";\par
+      add_header Accept-Ranges bytes;\par
+    \}\par
+  \}\par
+\}\f0\par
+\par
+\b Benefits:\b0\par
+- Efficient file transfer with sendfile\par
+- Range request support for seeking\par
+- Aggressive caching for performance\par
+- CORS support for Lavalink access\par
+\par
+\page
+
+\fs24\b 3. DOCUMENTATION OVERVIEW\b0\fs20\par
+\par
+BardBot includes comprehensive documentation:\par
+\par
+\b README.md\b0\par
+Quick start guide with installation instructions, feature overview, and basic usage.\par
+Target audience: New users\par
+\par
+\b USAGE.md\b0\par
+Simple usage guide focusing on running and managing BardBot day-to-day.\par
+Target audience: End users\par
+Covers: bardbot/bardbotstop commands, Lavalink service management, typical workflow\par
+\par
+\b Project.md\b0\par
+Complete development history with technical details for all 67 builds.\par
+Target audience: Developers, contributors\par
+Covers: Architecture decisions, bug fixes, optimization attempts, version history\par
+\par
+\b LAVALINK-INTEGRATION.md\b0\par
+Detailed guide for Lavalink setup and configuration.\par
+Target audience: System administrators\par
+Covers: Lavalink installation, configuration tuning, troubleshooting\par
+\par
+\b DEPLOYMENT.md\b0\par
+Advanced deployment options including systemd services (Note: Build 66 switched to command-line execution).\par
+Target audience: System administrators\par
+Covers: Service installation, monitoring, logging, maintenance\par
+\par
+\b nginx-music.conf\b0\par
+Nginx configuration reference for HTTP music server.\par
+Target audience: System administrators\par
+\par
+\b BardBot-Manual.rtf (This Document)\b0\par
+Comprehensive manual covering all aspects of BardBot.\par
+Target audience: All users\par
+\par
+\page
+
+\fs24\b 4. SYSTEM ARCHITECTURE\b0\fs20\par
+\par
+\b Component Diagram:\b0\par
+\par
+\f1 [Discord User]\par
+      |\par
+      | (Slash Commands)\par
+      v\par
+[Discord API]\par
+      |\par
+      | (WebSocket)\par
+      v\par
+[index-lavalink.js] --- (HTTP) --- [Nginx:8080]\par
+      |                                  |\par
+      | (WebSocket)                      |\par
+      v                                  v\par
+[Lavalink:2333]                  [Local Music Files]\par
+      |\par
+      | (Voice Protocol)\par
+      v\par
+[Discord Voice Server]\par
+      |\par
+      | (Audio Stream)\par
+      v\par
+[Discord User]\f0\par
+\par
+\b Data Flow:\b0\par
+\par
+1. \b User Input:\b0  User types /playdir in Discord\par
+2. \b Discord API:\b0  Sends command to bot via WebSocket\par
+3. \b Bot Processing:\b0  index-lavalink.js receives command\par
+4. \b File Discovery:\b0  Reads directory, finds audio files\par
+5. \b URL Generation:\b0  Creates HTTP URLs via Nginx\par
+6. \b Lavalink Loading:\b0  Sends URLs to Lavalink\par
+7. \b Audio Streaming:\b0  Lavalink fetches files from Nginx\par
+8. \b Audio Processing:\b0  Lavalink decodes, resamples, encodes\par
+9. \b Voice Transmission:\b0  Streams Opus audio to Discord\par
+10. \b Playback:\b0  User hears audio in voice channel\par
+\par
+\page
+
+\fs24\b 5. REQUEST FLOW DIAGRAM\b0\fs20\par
+\par
+\b Example: /playdir Command Flow\b0\par
+\par
+\b Step 1: User Issues Command\b0\par
+User types: /playdir dir:/home/mithroll/Shared/Songs1\par
+\par
+\b Step 2: Discord API Processes Command\b0\par
+- Discord validates command syntax\par
+- Sends interactionCreate event to bot\par
+- Bot receives event via discord.js WebSocket\par
+\par
+\b Step 3: Bot Receives Interaction\b0\par
+\f1 client.on('interactionCreate', async (interaction) => \{\par
+  if (!interaction.isChatInputCommand()) return;\par
+  if (interaction.commandName === 'playdir') \{\par
+    // Command handling starts\par
+  \}\par
+\});\f0\par
+\par
+\b Step 4: Validate User State\b0\par
+- Check if user is in a voice channel\par
+- Get voice channel reference\par
+- Defer reply to prevent timeout\par
+\par
+\b Step 5: Scan Directory\b0\par
+\f1 const files = fs.readdirSync(dirPath);\par
+const audioFiles = files.filter(file => \{\par
+  const ext = path.extname(file).slice(1).toLowerCase();\par
+  return SUPPORTED.has(ext);\par
+\});\f0\par
+\par
+\b Step 6: Check for M3U Playlist\b0\par
+\f1 const m3uFile = files.find(f => f.endsWith('.m3u'));\par
+if (m3uFile) \{\par
+  tracks = parseM3U(path.join(dirPath, m3uFile), dirPath);\par
+\} else \{\par
+  tracks = audioFiles.map(f => path.join(dirPath, f));\par
+\}\f0\par
+\par
+\b Step 7: Apply Shuffle (if requested)\b0\par
+\f1 if (shouldShuffle) \{\par
+  shuffleArray(trackPaths);\par
+\}\f0\par
+\par
+\page
+
+\b Step 8: Create/Get Lavalink Player\b0\par
+\f1 const player = lavalink.getPlayer(guildId) || \par
+               lavalink.createPlayer(\{\par
+  guildId: guildId,\par
+  voiceChannelId: vc.id,\par
+  textChannelId: interaction.channelId,\par
+  selfDeaf: true,\par
+  volume: state.defaultVolume\par
+\});\f0\par
+\par
+\b Step 9: Connect to Voice Channel\b0\par
+\f1 if (!player.connected) \{\par
+  await player.connect();\par
+\}\f0\par
+\par
+\b Step 10: Generate HTTP URLs\b0\par
+For each track:\par
+\f1 const relativePath = trackPath.substring(MUSIC_LOCAL_BASE.length);\par
+const encodedPath = relativePath.split('/').par
+                    map(encodeURIComponent).join('/');\par
+const httpUrl = `$\{MUSIC_HTTP_BASE\}$\{encodedPath\}`;\f0\par
+\par
+Example: /home/mithroll/Shared/song.mp3\par
+Becomes: http://localhost:8080/music/song.mp3\par
+\par
+\b Step 11: Load Tracks into Lavalink\b0\par
+\f1 const result = await player.search(\{\par
+  query: httpUrl\par
+\}, interaction.user);\par
+\par
+if (result && result.tracks && result.tracks.length > 0) \{\par
+  await player.queue.add(result.tracks[0]);\par
+\}\f0\par
+\par
+\b Step 12: Start Playback\b0\par
+\f1 if (!player.playing && !player.paused) \{\par
+  await player.play();\par
+\}\f0\par
+\par
+\b Step 13: Lavalink Fetches Audio\b0\par
+- Lavalink makes HTTP GET request to Nginx\par
+- Nginx serves file with sendfile optimization\par
+- Lavalink buffers audio data\par
+\par
+\page
+
+\b Step 14: Audio Processing\b0\par
+Lavalink processing pipeline:\par
+1. Decode audio file (any supported format)\par
+2. Resample to 48kHz (Discord requirement)\par
+3. Apply volume adjustment if needed\par
+4. Encode to Opus format (10/10 quality)\par
+5. Packetize for Discord Voice Protocol\par
+\par
+\b Step 15: Stream to Discord\b0\par
+- Lavalink sends Opus packets via Voice WebSocket\par
+- Discord Voice Server receives packets\par
+- Discord distributes to all users in voice channel\par
+\par
+\b Step 16: Track Events\b0\par
+Bot receives events from Lavalink:\par
+\par
+\f1 // Track starts\par
+lavalink.on('trackStart', (player, track) => \{\par
+  console.log(`Now playing: $\{track.info.title\}`);\par
+\});\par
+\par
+// Track ends\par
+lavalink.on('trackEnd', (player, track) => \{\par
+  console.log(`Track ended: $\{track.info.title\}`);\par
+  // Lavalink automatically plays next track in queue\par
+\});\par
+\par
+// Queue ends\par
+lavalink.on('queueEnd', (player) => \{\par
+  console.log('Playlist complete');\par
+  player.destroy(); // Disconnect from voice\par
+\});\f0\par
+\par
+\b Step 17: User Hears Audio\b0\par
+- Discord client decodes Opus packets\par
+- Audio plays through user's speakers/headphones\par
+- Zero stuttering with Lavalink architecture\par
+\par
+\page
+
+\fs24\b 6. COMMANDS REFERENCE\b0\fs20\par
+\par
+\b /playfile\b0\par
+Upload and play an audio file directly through Discord.\par
+\par
+Syntax: /playfile file:<attachment> [volume:<0-100>]\par
+\par
+Parameters:\par
+- file: Audio file attachment (required)\par
+- volume: Playback volume 0-100 (optional, default: current volume)\par
+\par
+Example: /playfile file:mysong.mp3 volume:75\par
+\par
+Notes:\par
+- File is uploaded to Discord, then streamed from Discord CDN\par
+- Supports all audio formats (MP3, WAV, OGG, FLAC, Opus, M4A, AAC, WebM)\par
+- Volume only affects this one file, doesn't change default\par
+\par
+---\par
+\par
+\b /playdir\b0\par
+Queue audio files from a local directory or M3U playlist.\par
+\par
+Syntax: /playdir dir:<path> [start:<true|false>] [shuffle:<true|false>]\par
+\par
+Parameters:\par
+- dir: Local directory path (required)\par
+- start: Start immediately if idle (optional, default: true)\par
+- shuffle: Randomize track order (optional, default: false)\par
+\par
+Examples:\par
+/playdir dir:/home/mithroll/Shared/Songs1\par
+/playdir dir:/home/mithroll/Shared/Rock shuffle:true\par
+\par
+Behavior:\par
+1. Scans directory for audio files\par
+2. Checks for .m3u playlist file\par
+3. If M3U found: Uses playlist order\par
+4. If no M3U: Uses alphabetical order\par
+5. Applies shuffle if requested\par
+6. Queues all tracks\par
+7. Starts playback\par
+\par
+Notes:\par
+- Non-recursive (doesn't scan subdirectories)\par
+- Respects persistent shuffle mode if enabled\par
+- Stores playlist for /shuffle command\par
+\par
+---\par
+\par
+\page
+
+\b /playurl\b0\par
+Queue audio files from a remote URL directory listing.\par
+\par
+Syntax: /playurl url:<url> [start:<true|false>] [shuffle:<true|false>]\par
+\par
+Parameters:\par
+- url: Remote directory URL (required)\par
+- start: Start immediately if idle (optional, default: true)\par
+- shuffle: Randomize track order (optional, default: false)\par
+\par
+Example: /playurl url:https://example.com/music/songs1\par
+\par
+Behavior:\par
+1. Fetches HTML directory listing\par
+2. Parses HTML for audio file links using regex\par
+3. Converts relative URLs to absolute URLs\par
+4. Applies shuffle if requested\par
+5. Queues all tracks\par
+6. Starts playback\par
+\par
+Notes:\par
+- Requires server with directory listing enabled\par
+- Supports Apache-style directory indexes\par
+- Handles apostrophes in filenames (e.g., "Baldur's Gate")\par
+- Works with /shuffle command\par
+\par
+---\par
+\par
+\b /volume\b0\par
+Set default volume for current and future tracks.\par
+\par
+Syntax: /volume level:<0-100>\par
+\par
+Parameter:\par
+- level: Volume level 0-100 (required)\par
+\par
+Example: /volume level:80\par
+\par
+Notes:\par
+- 0 = Muted\par
+- 50 = Half volume\par
+- 100 = Maximum volume\par
+- Affects currently playing track immediately\par
+- Becomes default for all future tracks\par
+- Persistent across bot restarts (stored in state)\par
+\par
+---\par
+\par
+\page
+
+\b /skip\b0\par
+Skip the current track and play next in queue.\par
+\par
+Syntax: /skip\par
+\par
+Behavior:\par
+1. Stops current track\par
+2. Automatically plays next track in queue\par
+3. If queue empty: Stops playback and disconnects\par
+\par
+Notes:\par
+- Works with any playlist type (local, remote, M3U)\par
+- Track order preserved (shuffle applied at queue time)\par
+\par
+---\par
+\par
+\b /stop\b0\par
+Stop playback immediately and clear the queue.\par
+\par
+Syntax: /stop\par
+\par
+Behavior:\par
+1. Clears entire queue\par
+2. Destroys player (stops playback)\par
+3. Disconnects from voice channel\par
+4. Clears "end after current" flag\par
+\par
+Notes:\par
+- Immediate stop (current song interrupted)\par
+- Queue completely cleared\par
+- Different from /end (which finishes current song)\par
+\par
+---\par
+\par
+\b /shuffle\b0\par
+Toggle shuffle mode or reshuffle current playlist.\par
+\par
+Syntax: /shuffle\par
+\par
+Behavior depends on state:\par
+\par
+If currently playing:\par
+1. Toggles shuffle mode ON/OFF\par
+2. Reshuffles entire playlist\par
+3. Restarts from beginning with new order\par
+4. Preserves all tracks\par
+\par
+If idle:\par
+1. Toggles shuffle mode ON/OFF\par
+2. Next /playdir will use this setting\par
+3. Persistent across sessions\par
+\par
+Examples:\par
+- Playing playlist, shuffle OFF: Enables shuffle, reshuffles, restarts\par
+- Playing playlist, shuffle ON: Disables shuffle, reshuffles, restarts\par
+- Idle: Toggles mode for next playback\par
+\par
+Notes:\par
+- Works with local directories, M3U playlists, and remote URLs\par
+- Reshuffling generates new random order\par
+- State persisted in guild state object\par
+\par
+---\par
+\par
+\page
+
+\b /end\b0\par
+End playback after current song finishes.\par
+\par
+Syntax: /end\par
+\par
+Behavior:\par
+1. Clears queue (removes upcoming tracks)\par
+2. Allows current track to finish\par
+3. Disconnects after current track ends\par
+4. Sets "end after current" flag\par
+\par
+Use case:\par
+"Play one more song then stop"\par
+\par
+Notes:\par
+- Graceful stop (current song completes)\par
+- Different from /stop (which stops immediately)\par
+- Queue cleared but current track preserved\par
+\par
+---\par
+\par
+\page
+
+\fs24\b 7. INSTALLATION & SETUP\b0\fs20\par
+\par
+\b Prerequisites:\b0\par
+- Linux system (Ubuntu/Debian/Arch recommended)\par
+- Node.js v18 or higher\par
+- Java 17+ (for Lavalink)\par
+- Nginx web server\par
+- Git\par
+\par
+\b Step 1: Clone Repository\b0\par
+\f1 git clone https://github.com/yourusername/discord-mp3-bot.git\par
+cd discord-mp3-bot\f0\par
+\par
+\b Step 2: Install Node Dependencies\b0\par
+\f1 npm install\f0\par
+\par
+This installs:\par
+- discord.js - Discord API library\par
+- lavalink-client - Lavalink integration\par
+- dotenv - Environment variable management\par
+- node-fetch - HTTP requests for remote URLs\par
+\par
+\b Step 3: Create .env File\b0\par
+\f1 DISCORD_TOKEN=your_bot_token_here\par
+DEV_GUILD_ID=your_server_id_here\f0\par
+\par
+Get Discord token from Discord Developer Portal (see section 2.1).\par
+\par
+\b Step 4: Download Lavalink\b0\par
+Download Lavalink.jar from:\par
+https://github.com/lavalink-devs/Lavalink/releases\par
+\par
+Place in project directory:\par
+\f1 /home/mithroll/Projects/discord-mp3-bot/Lavalink.jar\f0\par
+\par
+\b Step 5: Configure Lavalink\b0\par
+The application.yml file is already optimized. Verify settings:\par
+\f1 cat application.yml\f0\par
+\par
+\page
+
+\b Step 6: Install Lavalink Service\b0\par
+\f1 sudo cp lavalink.service /etc/systemd/system/\par
+sudo systemctl daemon-reload\par
+sudo systemctl enable lavalink\par
+sudo systemctl start lavalink\f0\par
+\par
+Verify:\par
+\f1 sudo systemctl status lavalink\f0\par
+\par
+\b Step 7: Configure Nginx\b0\par
+\f1 sudo cp nginx-music.conf /etc/nginx/sites-available/music\par
+sudo ln -s /etc/nginx/sites-available/music /etc/nginx/sites-enabled/\par
+sudo nginx -t\par
+sudo systemctl reload nginx\f0\par
+\par
+Verify:\par
+\f1 curl http://localhost:8080/\f0\par
+\par
+\b Step 8: Install BardBot Commands\b0\par
+\f1 sudo cp scripts/bardbot /usr/local/bin/\par
+sudo cp scripts/bardbotstop /usr/local/bin/\par
+sudo chmod +x /usr/local/bin/bardbot\par
+sudo chmod +x /usr/local/bin/bardbotstop\f0\par
+\par
+Verify:\par
+\f1 which bardbot\par
+which bardbotstop\f0\par
+\par
+\b Step 9: Test Installation\b0\par
+\f1 bardbot\f0\par
+\par
+Expected output:\par
+\f1 Starting BardBot v1.1 (Build 67)...\par
+Launching BardBot from console...\par
+============================================================\par
+BardBot v1.1 (Build 67) - Lavalink Edition\par
+Logged in as BardBot#8504\par
+============================================================\par
+Slash commands: /playfile, /volume, /playdir, /playurl, /skip, /stop, /shuffle, /end\par
+Lavalink integration active!\f0\par
+\par
+\page
+
+\fs24\b 8. RUNNING BARDBOT\b0\fs20\par
+\par
+\b Starting BardBot\b0\par
+\par
+From any directory:\par
+\f1 bardbot\f0\par
+\par
+The bardbot command:\par
+1. Checks if already running (prevents duplicates)\par
+2. Verifies Lavalink is running (starts if needed)\par
+3. Changes to project directory\par
+4. Runs index-lavalink.js in foreground\par
+5. Displays all output in terminal\par
+\par
+\b Stopping BardBot\b0\par
+\par
+Option 1 - From same terminal:\par
+Press Ctrl+C\par
+\par
+Option 2 - From any terminal:\par
+\f1 bardbotstop\f0\par
+\par
+The bardbotstop command:\par
+1. Finds running BardBot process\par
+2. Sends graceful shutdown signal (SIGTERM)\par
+3. Waits 1 second\par
+4. Force kills if still running (SIGKILL)\par
+\par
+\b Monitoring Output\b0\par
+\par
+All bot activity appears in the terminal:\par
+- Startup messages\par
+- Command usage\par
+- Track playback events\par
+- Error messages\par
+- Lavalink connection status\par
+\par
+Example session:\par
+\f1 $ bardbot\par
+Starting BardBot v1.1 (Build 67)...\par
+BardBot v1.1 (Build 67) - Lavalink Edition\par
+Logged in as BardBot#8504\par
+Lavalink integration active!\par
+\par
+[User uses /playdir in Discord]\par
+\par
+Loading: song1.mp3 -> http://localhost:8080/music/song1.mp3\par
+Loaded: song1.mp3\par
+Now playing: Unknown title\par
+Track ended: Unknown title\par
+Now playing: song2.mp3\par
+...\f0\par
+\par
+\page
+
+\b Managing Lavalink\b0\par
+\par
+Lavalink runs as a systemd service (auto-starts on boot).\par
+\par
+\b Check status:\b0\par
+\f1 sudo systemctl status lavalink\f0\par
+\par
+\b Start:\b0\par
+\f1 sudo systemctl start lavalink\f0\par
+\par
+\b Stop:\b0\par
+\f1 sudo systemctl stop lavalink\f0\par
+\par
+\b Restart:\b0\par
+\f1 sudo systemctl restart lavalink\f0\par
+\par
+\b View logs:\b0\par
+\f1 sudo journalctl -u lavalink -f\f0\par
+\par
+\b Typical Workflow\b0\par
+\par
+1. Lavalink is already running (auto-started on boot)\par
+2. Open terminal\par
+3. Type: bardbot\par
+4. Wait for "Lavalink integration active!"\par
+5. Go to Discord voice channel\par
+6. Use slash commands to play music\par
+7. Monitor terminal for activity\par
+8. When done: Press Ctrl+C or run bardbotstop\par
+\par
+\b Advanced: Running in Background\b0\par
+\par
+Using screen:\par
+\f1 screen -S bardbot\par
+bardbot\par
+# Press Ctrl+A then D to detach\par
+\par
+# Reattach later:\par
+screen -r bardbot\f0\par
+\par
+Using tmux:\par
+\f1 tmux new -s bardbot\par
+bardbot\par
+# Press Ctrl+B then D to detach\par
+\par
+# Reattach later:\par
+tmux attach -t bardbot\f0\par
+\par
+\page
+
+\fs24\b 9. GLOSSARY OF TERMS\b0\fs20\par
+\par
+\b Application.yml\b0\par
+Configuration file for Lavalink server containing settings for audio processing, buffer sizes, and quality parameters.\par
+\par
+\b Audio Codec\b0\par
+Method for encoding/decoding audio. BardBot uses Opus codec for Discord voice transmission.\par
+\par
+\b Bot Token\b0\par
+Secret authentication key for Discord bot, obtained from Discord Developer Portal. Must be kept confidential.\par
+\par
+\b Buffer\b0\par
+Temporary storage area for audio data. Larger buffers prevent stuttering but increase latency.\par
+\par
+\b CORS (Cross-Origin Resource Sharing)\b0\par
+Security mechanism allowing Lavalink to access files from Nginx HTTP server.\par
+\par
+\b DEV_GUILD_ID\b0\par
+Discord server (guild) ID where slash commands are registered. Allows instant command updates during development.\par
+\par
+\b Discord.js\b0\par
+Node.js library for interacting with Discord API. Handles connections, commands, and events.\par
+\par
+\b FFmpeg\b0\par
+Audio/video processing tool. Used in legacy version (Build 53 and earlier), replaced by Lavalink.\par
+\par
+\b Fisher-Yates Shuffle\b0\par
+Algorithm for randomizing array order. Used in shuffleArray() function for playlist shuffling.\par
+\par
+\b Guild\b0\par
+Discord's term for a server. Each guild has separate state (volume, shuffle mode, queue).\par
+\par
+\b HTTP Server\b0\par
+Nginx server running on port 8080, serving local music files to Lavalink over HTTP.\par
+\par
+\b Index-lavalink.js\b0\par
+Main bot application file (686 lines) containing all bot logic and command handlers.\par
+\par
+\b Intents\b0\par
+Permissions for bot to receive specific event types from Discord (Guilds, VoiceStates, Messages).\par
+\par
+\page
+
+\b Lavalink\b0\par
+Standalone audio delivery node based on Lavaplayer. Handles audio processing and streaming to Discord.\par
+\par
+\b Lavaplayer\b0\par
+Java library for audio processing. Foundation of Lavalink.\par
+\par
+\b M3U Playlist\b0\par
+Text file format listing media files. BardBot automatically detects and parses .m3u files in directories.\par
+\par
+\b Nginx\b0\par
+High-performance web server used to serve local music files over HTTP.\par
+\par
+\b Node.js\b0\par
+JavaScript runtime environment. BardBot runs on Node.js v18+.\par
+\par
+\b Opus\b0\par
+Audio codec optimized for voice and music. Discord's native audio format.\par
+\par
+\b Queue\b0\par
+Ordered list of tracks waiting to play. Managed by Lavalink player.\par
+\par
+\b Resampling\b0\par
+Converting audio from one sample rate to another. Lavalink resamples all audio to 48kHz for Discord.\par
+\par
+\b RTF (Rich Text Format)\b0\par
+Document format supporting formatting (bold, fonts, colors). This manual is in RTF format.\par
+\par
+\b Sendfile\b0\par
+Linux kernel feature for efficient file transfer. Nginx uses sendfile for better performance.\par
+\par
+\b Slash Commands\b0\par
+Discord's native command system. Commands start with / and appear in Discord UI with autocomplete.\par
+\par
+\b Systemd\b0\par
+Linux service manager. Lavalink runs as systemd service for auto-start and monitoring.\par
+\par
+\b Voice Channel\b0\par
+Discord audio chat room where bot plays music.\par
+\par
+\b WebSocket\b0\par
+Protocol for real-time bidirectional communication. Used by Discord API and Lavalink.\par
+\par
+\page
+
+\fs24\b 10. TROUBLESHOOTING\b0\fs20\par
+\par
+\b Problem: Bot won't start - "BardBot is already running"\b0\par
+\par
+Cause: Another instance is running.\par
+\par
+Solution:\par
+\f1 bardbotstop\par
+bardbot\f0\par
+\par
+If that doesn't work:\par
+\f1 pkill -f "node.*index-lavalink.js"\par
+bardbot\f0\par
+\par
+---\par
+\par
+\b Problem: Bot starts but no slash commands appear in Discord\b0\par
+\par
+Cause: Commands not registered or bot missing permissions.\par
+\par
+Solutions:\par
+1. Verify bot has "applications.commands" scope\par
+2. Check DEV_GUILD_ID in .env is correct\par
+3. Restart Discord client\par
+4. Wait 5 minutes (Discord command cache)\par
+5. Re-invite bot with correct permissions\par
+\par
+---\par
+\par
+\b Problem: "Lavalink service is not running"\b0\par
+\par
+Cause: Lavalink service stopped or failed.\par
+\par
+Solutions:\par
+\f1 sudo systemctl start lavalink\par
+sudo systemctl status lavalink\f0\par
+\par
+Check logs:\par
+\f1 sudo journalctl -u lavalink -n 50\f0\par
+\par
+Common issues:\par
+- Port 2333 already in use\par
+- Java not installed or wrong version\par
+- Lavalink.jar missing or corrupted\par
+\par
+---\par
+\par
+\page
+
+\b Problem: Bot connects to voice but no audio plays\b0\par
+\par
+Causes:\par
+1. Lavalink can't access music files\par
+2. Nginx not running or misconfigured\par
+3. File paths incorrect\par
+\par
+Solutions:\par
+\par
+Check Nginx:\par
+\f1 sudo systemctl status nginx\par
+curl http://localhost:8080/\f0\par
+\par
+Check file paths:\par
+\f1 ls /home/mithroll/Shared\f0\par
+\par
+Check Nginx logs:\par
+\f1 sudo tail -f /var/log/nginx/error.log\f0\par
+\par
+Verify Lavalink can fetch:\par
+\f1 curl http://localhost:8080/music/testfile.mp3\f0\par
+\par
+---\par
+\par
+\b Problem: Audio stutters or has gaps\b0\par
+\par
+Note: This should NOT happen with Build 67. If it does:\par
+\par
+1. Verify running Build 67:\par
+   Check terminal output for "Build 67"\par
+\par
+2. Check system resources:\par
+\f1    top\par
+   # Look for high CPU or memory usage\f0\par
+\par
+3. Check Lavalink memory:\par
+\f1    sudo systemctl status lavalink\par
+   # Memory should be < 512MB\f0\par
+\par
+4. Verify running from command line (not as service):\par
+\f1    ps aux | grep bardbot\par
+   # Should see: node index-lavalink.js\par
+   # Should NOT see: systemd service\f0\par
+\par
+5. Check network connectivity:\par
+   Local files should not stutter.\par
+   Remote URLs may stutter with slow connection.\par
+\par
+---\par
+\par
+\page
+
+\b Problem: /stop command crashes bot\b0\par
+\par
+This was fixed in Build 67. Update if running older build:\par
+\par
+\f1 cd /home/mithroll/Projects/discord-mp3-bot\par
+git pull\par
+bardbotstop\par
+bardbot\f0\par
+\par
+---\par
+\par
+\b Problem: Remote URLs (/playurl) not working\b0\par
+\par
+Causes:\par
+1. Server doesn't have directory listing enabled\par
+2. CORS blocks Lavalink access\par
+3. Files not accessible via HTTP\par
+\par
+Solutions:\par
+\par
+Test in browser:\par
+Visit URL in web browser, should see file list.\par
+\par
+Check server configuration (if you control it):\par
+Apache: Enable mod_autoindex\par
+Nginx: Set autoindex on;\par
+\par
+Check CORS headers:\par
+Server must allow cross-origin requests.\par
+\par
+---\par
+\par
+\b Problem: Files with apostrophes don't play (e.g., "Baldur's Gate")\b0\par
+\par
+This was fixed in Build 62. Update if running older build:\par
+\par
+\f1 cd /home/mithroll/Projects/discord-mp3-bot\par
+git pull\par
+bardbotstop\par
+bardbot\f0\par
+\par
+---\par
+\par
+\page
+
+\b Problem: Permission denied errors\b0\par
+\par
+Causes:\par
+1. File permissions too restrictive\par
+2. Nginx can't read files\par
+3. Bot can't read directory\par
+\par
+Solutions:\par
+\par
+Fix directory permissions:\par
+\f1 chmod 755 /home/mithroll/Shared\par
+chmod 755 /home/mithroll/Shared/Songs1\f0\par
+\par
+Fix file permissions:\par
+\f1 chmod 644 /home/mithroll/Shared/Songs1/*.mp3\f0\par
+\par
+Check Nginx user:\par
+\f1 ps aux | grep nginx\par
+# Nginx should run as www-data or nginx user\f0\par
+\par
+---\par
+\par
+\b Problem: High memory usage\b0\par
+\par
+Expected memory usage:\par
+- Lavalink: ~500-600 MB\par
+- BardBot: ~50-80 MB\par
+\par
+If higher:\par
+\par
+1. Check for memory leaks:\par
+\f1    ps aux | grep -E "node|java"\f0\par
+\par
+2. Restart services:\par
+\f1    bardbotstop\par
+   sudo systemctl restart lavalink\par
+   bardbot\f0\par
+\par
+3. Check Lavalink max memory:\par
+\f1    grep Xmx lavalink.service\par
+   # Should be: -Xmx512M\f0\par
+\par
+---\par
+\par
+\b Getting Help\b0\par
+\par
+If problems persist:\par
+\par
+1. Check logs:\par
+\f1    sudo journalctl -u lavalink -n 100\par
+   # BardBot logs are in terminal output\f0\par
+\par
+2. Review documentation:\par
+   - USAGE.md - Basic usage\par
+   - LAVALINK-INTEGRATION.md - Lavalink setup\par
+   - Project.md - Technical details\par
+\par
+3. Check GitHub issues:\par
+   Search for similar problems in repository issues.\par
+\par
+\page
+
+\fs28\b APPENDIX A: Configuration Files\b0\fs20\par
+\par
+\b .env\b0\par
+\f1 DISCORD_TOKEN=your_bot_token_here\par
+DEV_GUILD_ID=your_server_id_here\f0\par
+\par
+\b application.yml (Lavalink)\b0\par
+Key settings:\par
+\f1 server:\par
+  port: 2333\par
+  address: 127.0.0.1\par
+\par
+lavalink:\par
+  server:\par
+    password: "bardbot-secure-password-2025"\par
+    bufferDurationMs: 600\par
+\par
+  plugins:\par
+    lavasrc:\par
+      providers: []\par
+      sources:\par
+        spotify: false\par
+        applemusic: false\f0\par
+\par
+\b nginx-music.conf\b0\par
+Key settings:\par
+\f1 listen 8080;\par
+sendfile on;\par
+tcp_nopush on;\par
+output_buffers 8 256k;\par
+add_header Access-Control-Allow-Origin *;\f0\par
+\par
+---\par
+\par
+\fs28\b APPENDIX B: Build History Summary\b0\fs20\par
+\par
+\b Builds 1-53: FFmpeg Era\b0\par
+Attempted to optimize FFmpeg-based audio playback. Persistent stuttering despite 20+ optimization attempts.\par
+\par
+\b Build 54-56: Transition to Lavalink\b0\par
+Initial Lavalink integration. Immediately resolved stuttering issues.\par
+\par
+\b Build 57: Quality Optimization\b0\par
+Optimized Lavalink settings (HIGH resampling, 600ms buffers, Opus quality 10).\par
+\par
+\b Build 58: Advanced Features\b0\par
+Added /shuffle and /end commands. Fixed queue.clear() bug.\par
+\par
+\b Build 59: Remote Playback\b0\par
+Added /playurl command for remote URL directory playback.\par
+\par
+\b Build 60-64: Refinement\b0\par
+Fixed apostrophe parsing, remote URL shuffle support, removed debug logging.\par
+\par
+\b Build 65: Deployment\b0\par
+Created systemd service, archived FFmpeg code, added deployment scripts.\par
+\par
+\b Build 66: Command-Based Execution\b0\par
+Switched from systemd service to command-line execution to fix stuttering.\par
+\par
+\b Build 67: Bug Fixes\b0\par
+Fixed /stop and /shuffle crash (player.stop() not a function).\par
+\par
+---\par
+\par
+\b End of Manual\b0\par
+\par
+BardBot Version 1.1 | Build 67\par
+Last Updated: November 19, 2025\par
+\par
+}
