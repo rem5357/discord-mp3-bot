@@ -1,18 +1,41 @@
 [Unit]
-Description=Lavalink Audio Node
+Description=Lavalink Audio Node (Discord-Optimized)
 After=network.target
 
 [Service]
 Type=simple
-User=mithroll
-WorkingDirectory=/home/mithroll/Projects/discord-mp3-bot
-ExecStart=/usr/bin/java -Xmx512M -jar /home/mithroll/Projects/discord-mp3-bot/Lavalink.jar
+User=root
+WorkingDirectory=/home/user/discord-mp3-bot
+Nice=-10
+
+# Optimized JVM settings for Discord voice (128 kbps, low latency)
+ExecStart=/usr/bin/java \
+  -Xms256M \
+  -Xmx512M \
+  -XX:+UseG1GC \
+  -XX:MaxGCPauseMillis=50 \
+  -XX:+ParallelRefProcEnabled \
+  -XX:G1HeapRegionSize=2M \
+  -XX:+UnlockExperimentalVMOptions \
+  -XX:G1NewSizePercent=30 \
+  -XX:G1MaxNewSizePercent=40 \
+  -XX:InitiatingHeapOccupancyPercent=40 \
+  -XX:G1ReservePercent=15 \
+  -Djdk.nio.maxCachedBufferSize=262144 \
+  -Dcom.sedmelluq.discord.lavaplayer.player.AudioPlayerManager.frameBufferDuration=1000 \
+  -jar /home/user/discord-mp3-bot/Lavalink.jar
+
 Restart=on-failure
 RestartSec=5s
 
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
+
+# Resource limits - allow high priority for voice
+LimitNICE=-10
+CPUSchedulingPolicy=other
+CPUSchedulingPriority=0
 
 # Logging
 StandardOutput=journal

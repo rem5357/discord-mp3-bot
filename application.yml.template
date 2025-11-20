@@ -1,0 +1,78 @@
+server:
+  port: 2333
+  address: 127.0.0.1  # Localhost only for security
+
+lavalink:
+  plugins:
+    # No plugins needed for basic MP3 playback
+
+  server:
+    password: "bardbot-secure-password-2025"
+    sources:
+      # Enable all necessary sources
+      youtube: false       # Not needed for local MP3s
+      bandcamp: false
+      soundcloud: false
+      twitch: false
+      vimeo: false
+      http: true          # Required for Discord attachment URLs and web URLs
+      local: true         # Required for local file:// paths
+
+    # Buffer configuration - optimized for Discord voice gateway
+    bufferDurationMs: 400           # 400ms buffer (Discord recommended: 200-600ms)
+    frameBufferDurationMs: 1000     # 1 second frame buffer (prevents underruns)
+    opusSendInterval: 20            # 20ms Opus frame interval (Discord standard)
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5         # Player state update frequency (seconds)
+
+    # Enable GC warnings for memory optimization
+    gc-warnings: true
+
+    # Ratelimit configuration
+    ratelimit:
+      ipBlocks: []
+      excludedIps: []
+      strategy: "RotateOnBan"  # No bans on localhost
+      searchTriggersFail: true
+      retryLimit: -1
+
+    # YouTube configuration (disabled, but keeping structure)
+    youtubeConfig:
+      email: ""
+      password: ""
+
+    # HTTP configuration for remote URLs
+    httpConfig:
+      proxyHost: ""
+      proxyPort: 0
+      proxyUser: ""
+      proxyPassword: ""
+
+# Metrics for monitoring (optional)
+metrics:
+  prometheus:
+    enabled: false
+    endpoint: /metrics
+
+# Sentry error tracking (disabled)
+sentry:
+  dsn: ""
+  environment: ""
+
+# Logging configuration
+logging:
+  file:
+    path: ./logs/
+  level:
+    root: INFO
+    lavalink: INFO
+
+  # Request logging
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 7
+
+# Lavaplayer audio encoding settings (CRITICAL for Discord quality)
+# Note: These are JVM arguments and should be passed when starting Lavalink
+# We'll handle this in the start script
