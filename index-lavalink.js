@@ -1,5 +1,5 @@
 // index-lavalink.js — BardBot: Discord Audio Playback Bot (Lavalink Edition)
-// Version: 1.1 | Build: 64 - Remote URL playback with /shuffle support
+// Version: 1.1 | Build: 67 - Fixed /stop and /shuffle crash
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -9,7 +9,7 @@ const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require
 const { LavalinkManager } = require('lavalink-client');
 
 const VERSION = '1.1';
-const BUILD = 64;
+const BUILD = 67;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -581,8 +581,6 @@ client.on('interactionCreate', async interaction => {
     if (player) {
       // Clear queue - lavalink-client uses tracks array
       player.queue.tracks = [];
-      await player.stop();
-      await player.disconnect();
       await player.destroy();
       state.endAfterCurrent = false; // Clear end flag
       return interaction.reply({ content: 'Stopped playback and cleared the queue.', flags: 64 });
@@ -614,9 +612,11 @@ client.on('interactionCreate', async interaction => {
 
         console.log('🔀 Reshuffling current playlist...');
 
-        // Clear current queue - lavalink-client uses tracks array
+        // Clear current queue and stop current track - lavalink-client uses tracks array
         player.queue.tracks = [];
-        await player.stop();
+        if (player.playing) {
+          player.queue.current = null;
+        }
 
         // Reload all tracks in shuffled order
         let loadedCount = 0;
