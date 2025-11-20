@@ -1,4 +1,9 @@
-// index.js — BardBot: Discord Audio Playback Bot
+// ⚠️ LEGACY VERSION - ARCHIVED
+// This is the FFmpeg-based implementation (Build 53, Version 0.31)
+// Replaced by index-lavalink.js (Build 64, Version 1.1) due to persistent stuttering issues
+// Kept for reference only - use index-lavalink.js for production
+//
+// index-legacy.js — BardBot: Discord Audio Playback Bot (FFmpeg Edition)
 // Version: 0.31 | Build: 53 - Added FFmpeg encoder buffer settings (-bufsize, -maxrate)
 require('dotenv').config();
 const fs = require('node:fs');

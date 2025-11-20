@@ -1,0 +1,31 @@
+[Unit]
+Description=BardBot - Discord Audio Playback Bot
+After=network.target lavalink.service
+Requires=lavalink.service
+
+[Service]
+Type=simple
+User=mithroll
+WorkingDirectory=/home/mithroll/Projects/discord-mp3-bot
+ExecStart=/usr/bin/node /home/mithroll/Projects/discord-mp3-bot/index-lavalink.js
+Restart=always
+RestartSec=10s
+
+# Restart conditions
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bardbot
+
+# Environment
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
