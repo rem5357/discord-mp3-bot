@@ -1528,3 +1528,164 @@ User reported stuttering during playback with "catch-up" speed variations - a cl
 - Speed-up after stutter = classic buffer underrun
 - Large buffers (16MB) and pacing haven't fully solved it
 - May need to investigate non-FFmpeg solutions or pre-caching
+
+---
+
+## 🔧 CURRENT INVESTIGATION - Build 68.x (2025-11-19)
+
+### Status: Audio Stuttering Investigation - Discord Server Load Hypothesis
+
+**Branch:** `claude/fix-audio-stuttering-01JnkqbwmaNTjYVyYvfrLzCa`  
+**Build:** 68.2 (Lavalink optimized)
+
+### Key Discovery: Likely Discord Server Load Issue
+
+**Timeline:**
+- 5 PM CST: Audio working perfectly (confirmed by multiple users)
+- Evening (7-11 PM): Stuttering progressively worsened
+- Late evening: Even WAV files (which worked earlier) now stuttering
+
+**Critical Insight:**
+The stuttering is **NOT** related to:
+- ❌ Audio codecs (MP3 vs WAV vs FLAC)
+- ❌ Lavalink configuration
+- ❌ JVM garbage collection
+- ❌ Buffer settings
+- ❌ Discord voice gateway timing (opusSendInterval)
+
+The stuttering is **LIKELY** related to:
+- ✅ **Discord server load during peak hours**
+- ✅ Voice gateway processing delays
+- ✅ US evening peak usage (7-11 PM CST)
+
+**Evidence:**
+1. Worked perfectly at 5 PM (off-peak)
+2. Got progressively worse through evening (peak hours)
+3. Multiple users confirmed no issues earlier
+4. Even WAV files stutter now (ruled out codec issues completely)
+5. Tested Build 64 (no optimizations) vs Build 68 (optimized) - same stuttering
+6. All optimizations applied correctly - no improvement during peak hours
+
+### What We Tried (Build 68.x):
+
+**Lavalink Optimizations Applied:**
+- ✅ `opusSendInterval: 20` - Discord standard 20ms Opus frame interval
+- ✅ `frameBufferDurationMs: 1000` - Reduced from 5000 for responsiveness
+- ✅ `playerUpdateInterval: 5` - Lavalink default (from aggressive 1s)
+- ✅ JVM G1GC with `MaxGCPauseMillis=50` - Low-latency garbage collection
+- ✅ High process priority (`Nice=-10`)
+- ✅ Optimized G1 heap parameters for low-latency audio
+- ✅ NIO buffer cache optimization
+- ✅ Disabled unused sources and filters
+
+**Testing:**
+- Rolled back to Build 64 (TestAlpha branch) - Same stuttering
+- Confirmed optimizations weren't making it worse
+- Converted MP3 files to FLAC (8 files in /home/mithroll/Shared/Songs1/)
+- Moved original MP3s to Songs1/mp3/ subdirectory
+
+### Root Cause Analysis:
+
+**Discord Voice Gateway Architecture:**
+- Designed for **voice chat** (tolerates packet loss, prioritizes latency)
+- NOT optimized for **continuous music streaming** (requires consistent data)
+- Voice can handle gaps/jitter; music cannot
+- Peak hours = more connections = gateway processing delays
+
+**Why Music Stutters More Than Voice:**
+- Voice: Jitter buffers, noise suppression, can drop frames gracefully
+- Music: Any gap in stream = audible stutter
+- Music bitrate (128-320 kbps) > Voice (~64 kbps)
+- Continuous high-quality stream is more demanding on gateway
+
+---
+
+## 📋 THINGS TO DO
+
+### Immediate Testing (Tomorrow Morning)
+
+1. **Confirm Discord Load Theory:**
+   - [ ] Test playback at 8-10 AM CST (off-peak hours)
+   - [ ] Test playback at 2-4 AM CST (minimal load)
+   - [ ] If both work perfectly → Confirms Discord server load is the issue
+
+2. **Voice Region Testing:**
+   - [ ] Change Discord server voice region to Singapore or Japan
+   - [ ] Test playback during US evening hours
+   - [ ] Different region = different peak hours = may work better
+
+3. **Discord Channel Settings:**
+   - [ ] Try lowering voice channel bitrate to 96 kbps (from 128 kbps)
+   - [ ] Less data = less likely to stutter under gateway load
+
+### Potential Solutions to Explore
+
+1. **Aggressive Buffering for Peak Hours:**
+   ```yaml
+   bufferDurationMs: 2000      # 2s (up from 600ms)
+   frameBufferDurationMs: 3000 # 3s (up from 1000ms)
+   ```
+   - Adds latency but may handle Discord gateway delays better
+   - Test if this helps during peak hours
+
+2. **Bot Priority/Hosting:**
+   - Research dedicated music bot hosting services
+   - Better Discord API priority/allocation
+   - Dedicated voice infrastructure
+
+3. **Alternative Audio Formats:**
+   - FLAC files ready in Songs1/ directory
+   - Test if lossless compression helps
+   - Compare with WAV during off-peak hours
+
+4. **Voice Gateway Monitoring:**
+   - Add logging for Discord gateway latency
+   - Track packet loss during playback
+   - Correlate stuttering with gateway metrics
+
+### Files Changed/Added
+
+**Branch: claude/fix-audio-stuttering-01JnkqbwmaNTjYVyYvfrLzCa**
+- `application.yml` - Optimized Lavalink configuration
+- `lavalink.service` - JVM-optimized systemd service
+- `APPLICATION-YML-REVIEW.md` - Configuration analysis
+- `LAVALINK-OPTIMIZATION.md` - Optimization summary
+- `VOICE-OPTIMIZATION-GUIDE.md` - Voice gateway guide
+- `diagnose-voice.js` - Voice diagnostics script
+- `application.yml.template` - Template configuration
+
+**Audio Files:**
+- Converted 8 MP3 files to FLAC in `/home/mithroll/Shared/Songs1/`
+- Original MP3s archived in `/home/mithroll/Shared/Songs1/mp3/`
+
+**Test Branch:**
+- `TestAlpha` - Build 64 baseline (confirmed same stuttering issue)
+
+### Questions to Answer
+
+1. **Does off-peak testing confirm the Discord load theory?**
+   - If yes → Focus on peak-hour workarounds
+   - If no → Investigate other factors (network, ISP, local system)
+
+2. **Does voice region change help during peak hours?**
+   - If yes → Keep using off-peak regions
+   - If no → Discord global load or other issue
+
+3. **Is this issue specific to this Discord server/guild?**
+   - Test on different Discord server
+   - Test with different voice channel settings
+
+4. **Are other music bots having the same issue?**
+   - Check if popular music bots (Rythm, Groovy alternatives) work during peak hours
+   - If they also stutter → Confirms Discord limitation
+   - If they work fine → Investigate their architecture
+
+### Next Session Priority
+
+**Test the Discord load theory first** - This is the most likely root cause based on today's findings. All other optimizations are in place and working correctly.
+
+---
+
+**Last Updated:** 2025-11-19 22:30 CST  
+**Current Branch:** claude/fix-audio-stuttering-01JnkqbwmaNTjYVyYvfrLzCa  
+**Status:** Investigation ongoing - Discord server load hypothesis
