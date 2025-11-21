@@ -1,5 +1,5 @@
 // index-lavalink.js — BardBot: Discord Audio Playback Bot (Lavalink Edition)
-// Version: 1.1 | Build: 67 - Fixed /stop and /shuffle crash
+// Version: 1.2 | Build: 70 - Fixed /play resume using player.resume(), all pause/resume logic corrected
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -8,8 +8,8 @@ const fetch = require('node-fetch');
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const { LavalinkManager } = require('lavalink-client');
 
-const VERSION = '1.1';
-const BUILD = 67;
+const VERSION = '1.2';
+const BUILD = 70;
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_GUILD_ID = process.env.DEV_GUILD_ID;
@@ -240,8 +240,10 @@ const playurlCmd = new SlashCommandBuilder()
   .addBooleanOption(opt => opt.setName('start').setDescription('Start immediately if idle (default: true)'))
   .addBooleanOption(opt => opt.setName('shuffle').setDescription('Shuffle the playlist (default: false)'));
 
+const playCmd2 = new SlashCommandBuilder().setName('play').setDescription('Resume playback if paused.');
 const skipCmd = new SlashCommandBuilder().setName('skip').setDescription('Skip the current track.');
 const stopCmd = new SlashCommandBuilder().setName('stop').setDescription('Stop playback and clear the queue.');
+const pauseCmd = new SlashCommandBuilder().setName('pause').setDescription('Pause playback.');
 const shuffleCmd = new SlashCommandBuilder()
   .setName('shuffle')
   .setDescription('Toggle shuffle mode. Reshuffles current playlist or enables shuffle for next playdir.');
@@ -264,9 +266,9 @@ client.once('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   await rest.put(
     Routes.applicationGuildCommands(client.user.id, DEV_GUILD_ID),
-    { body: [playCmd.toJSON(), volumeCmd.toJSON(), playdirCmd.toJSON(), playurlCmd.toJSON(), skipCmd.toJSON(), stopCmd.toJSON(), shuffleCmd.toJSON(), endCmd.toJSON()] }
+    { body: [playCmd.toJSON(), volumeCmd.toJSON(), playdirCmd.toJSON(), playurlCmd.toJSON(), playCmd2.toJSON(), skipCmd.toJSON(), stopCmd.toJSON(), pauseCmd.toJSON(), shuffleCmd.toJSON(), endCmd.toJSON()] }
   );
-  console.log('Slash commands: /playfile, /volume, /playdir, /playurl, /skip, /stop, /shuffle, /end');
+  console.log('Slash commands: /playfile, /volume, /playdir, /playurl, /play, /skip, /stop, /pause, /shuffle, /end');
   console.log('🎧 Lavalink integration active!');
 });
 
@@ -326,8 +328,16 @@ client.on('interactionCreate', async interaction => {
       await player.setVolume(perTrackVol);
       await player.queue.add(track);
 
-      if (!player.playing && !player.paused) {
-        await player.play();
+      if (!player.playing) {
+        if (player.paused) {
+          await player.resume();
+        }
+        try {
+          await player.play();
+        } catch (playError) {
+          console.error('Error starting playback:', playError);
+          return interaction.editReply(`Failed to play audio: ${playError.message || 'Unknown error'}`);
+        }
       }
 
       await interaction.editReply(`Playing **${attachment.name}** in **${vc.name}** at **${perTrackVol}/100** volume.`);
@@ -466,8 +476,16 @@ client.on('interactionCreate', async interaction => {
         return interaction.editReply('Failed to load any tracks from directory.');
       }
 
-      if (startNow && !player.playing && !player.paused) {
-        await player.play();
+      if (startNow && !player.playing) {
+        if (player.paused) {
+          await player.resume();
+        }
+        try {
+          await player.play();
+        } catch (playError) {
+          console.error('Error starting playback:', playError);
+          return interaction.editReply(`Queued **${loadedCount}** tracks but failed to start playback: ${playError.message || 'Unknown error'}`);
+        }
       }
 
       await interaction.editReply(`Queued **${loadedCount}** tracks from ${playlistType} \`${dir}\`. ${startNow ? 'Starting…' : 'Added to queue.'}`);
@@ -552,8 +570,16 @@ client.on('interactionCreate', async interaction => {
         return interaction.editReply('Failed to load any tracks from URL.');
       }
 
-      if (startNow && !player.playing && !player.paused) {
-        await player.play();
+      if (startNow && !player.playing) {
+        if (player.paused) {
+          await player.resume();
+        }
+        try {
+          await player.play();
+        } catch (playError) {
+          console.error('Error starting playback:', playError);
+          return interaction.editReply(`Queued **${loadedCount}** tracks but failed to start playback: ${playError.message || 'Unknown error'}`);
+        }
       }
 
       const playlistType = shouldShuffle ? 'remote directory (shuffled)' : 'remote directory';
@@ -569,8 +595,19 @@ client.on('interactionCreate', async interaction => {
   if (interaction.commandName === 'skip') {
     const player = lavalink.getPlayer(guildId);
     if (player && player.playing) {
-      await player.skip();
-      return interaction.reply({ content: 'Skipped current track.', flags: 64 });
+      const queueLength = player.queue.tracks.length;
+      if (queueLength === 0) {
+        // No more tracks in queue - stop playback instead of crashing
+        await player.destroy();
+        return interaction.reply({ content: 'No more tracks in queue. Stopped playback.', flags: 64 });
+      }
+      try {
+        await player.skip();
+        return interaction.reply({ content: 'Skipped current track.', flags: 64 });
+      } catch (skipError) {
+        console.error('Error skipping track:', skipError);
+        return interaction.reply({ content: `Failed to skip: ${skipError.message || 'Unknown error'}`, flags: 64 });
+      }
     }
     return interaction.reply({ content: 'Nothing is playing.', flags: 64 });
   }
@@ -584,6 +621,45 @@ client.on('interactionCreate', async interaction => {
       await player.destroy();
       state.endAfterCurrent = false; // Clear end flag
       return interaction.reply({ content: 'Stopped playback and cleared the queue.', flags: 64 });
+    }
+    return interaction.reply({ content: 'Nothing is playing.', flags: 64 });
+  }
+
+  // ----- /play -----
+  if (interaction.commandName === 'play') {
+    const player = lavalink.getPlayer(guildId);
+    if (player && player.connected) {
+      if (player.paused) {
+        try {
+          await player.resume();
+          return interaction.reply({ content: 'Playback resumed.', flags: 64 });
+        } catch (resumeError) {
+          console.error('Error resuming playback:', resumeError);
+          return interaction.reply({ content: `Failed to resume: ${resumeError.message || 'Unknown error'}`, flags: 64 });
+        }
+      } else if (player.playing) {
+        return interaction.reply({ content: 'Already playing.', flags: 64 });
+      } else {
+        return interaction.reply({ content: 'No track loaded. Use /playfile, /playdir, or /playurl to queue tracks.', flags: 64 });
+      }
+    }
+    return interaction.reply({ content: 'Not connected to voice channel.', flags: 64 });
+  }
+
+  // ----- /pause -----
+  if (interaction.commandName === 'pause') {
+    const player = lavalink.getPlayer(guildId);
+    if (player && player.connected) {
+      if (player.paused) {
+        return interaction.reply({ content: 'Playback is already paused. Use /play to resume.', flags: 64 });
+      }
+      try {
+        await player.pause();
+        return interaction.reply({ content: 'Playback paused.', flags: 64 });
+      } catch (pauseError) {
+        console.error('Error pausing playback:', pauseError);
+        return interaction.reply({ content: `Failed to pause: ${pauseError.message || 'Unknown error'}`, flags: 64 });
+      }
     }
     return interaction.reply({ content: 'Nothing is playing.', flags: 64 });
   }
@@ -650,8 +726,13 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (loadedCount > 0) {
-          await player.play();
-          return interaction.editReply(`🔀 Shuffle **${shuffleModeText}** - Restarted playlist with **${loadedCount}** shuffled tracks!`);
+          try {
+            await player.play();
+            return interaction.editReply(`🔀 Shuffle **${shuffleModeText}** - Restarted playlist with **${loadedCount}** shuffled tracks!`);
+          } catch (playError) {
+            console.error('Error starting playback after shuffle:', playError);
+            return interaction.editReply(`Shuffled **${loadedCount}** tracks but failed to start playback: ${playError.message || 'Unknown error'}`);
+          }
         } else {
           return interaction.editReply('Failed to reshuffle playlist.');
         }

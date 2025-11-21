@@ -41,9 +41,9 @@ Launches BardBot from any directory. Output appears in the current terminal.
 **Example:**
 ```bash
 $ bardbot
-Starting BardBot v1.1 (Build 64)...
+Starting BardBot v1.2 (Build 70)...
 Launching BardBot from console...
-🎵 BardBot v1.1 (Build 64) - Lavalink Edition
+🎵 BardBot v1.2 (Build 70) - Lavalink Edition
 ✅ Logged in as BardBot#8504
 ```
 
@@ -159,5 +159,5 @@ sudo systemctl status lavalink
 
 ---
 
-**Version**: 1.1 (Build 64)
-**Last Updated**: 2025-11-19
+**Version**: 1.2 (Build 70)
+**Last Updated**: 2025-11-21

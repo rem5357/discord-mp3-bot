@@ -1,6 +1,6 @@
 # BardBot - Discord Audio Playback Bot
 
-**Version:** 1.1 | **Build:** 64 - Remote URL Playback with Shuffle ✅
+**Version:** 1.2 | **Build:** 70 - Pause/Resume Controls & Enhanced Error Handling ✅
 
 A high-quality Discord bot for playing audio files in voice channels, supporting both individual file playback and directory-based playlists from local and remote sources. **100% feature complete with zero stuttering and advanced queue control!**
 
@@ -97,10 +97,10 @@ bardbot
 
 You should see:
 ```
-🎵 BardBot v1.1 (Build 64) - Lavalink Edition
+🎵 BardBot v1.2 (Build 70) - Lavalink Edition
 ✅ Logged in as BardBot#...
 ✅ Lavalink node connected: local-node
-Slash commands: /playfile, /volume, /playdir, /playurl, /skip, /stop, /shuffle, /end
+Slash commands: /playfile, /volume, /playdir, /playurl, /play, /skip, /stop, /pause, /shuffle, /end
 ```
 
 ## Commands
@@ -118,14 +118,18 @@ Slash commands: /playfile, /volume, /playdir, /playurl, /skip, /stop, /shuffle, 
   - Example: `/playurl url:http://example.com/music/songs1`
   - Works with shuffle mode
 
+### Playback Control
+- `/play` - Resume playback if paused (NEW in Build 70)
+- `/pause` - Pause playback (NEW in Build 70)
+- `/skip` - Skip the current track (enhanced error handling in Build 70)
+- `/stop` - Stop playback immediately and clear the queue
+- `/end` - End playback after current song finishes
+
 ### Queue Control
-- `/shuffle` - Toggle shuffle mode or reshuffle current playlist (NEW in Build 58)
+- `/shuffle` - Toggle shuffle mode or reshuffle current playlist
   - If playing: Reshuffles and restarts playlist from beginning
   - If idle: Enables shuffle mode for next `/playdir`
   - Persistent across sessions
-- `/skip` - Skip the current track
-- `/stop` - Stop playback immediately and clear the queue
-- `/end` - End playback after current song finishes (NEW in Build 58)
 
 ### Settings
 - `/volume level:<0-100>` - Set default volume for current and future tracks
@@ -200,7 +204,9 @@ After extensive testing through 57 builds, Lavalink proved superior to FFmpeg:
 
 ## Version History
 
-- **1.1 (Build 64)** - STABLE RELEASE - Remote URL playback with full `/shuffle` support
+- **1.2 (Build 70)** - STABLE RELEASE - Added `/play` and `/pause` controls, enhanced error handling for crashes
+- **1.2 (Build 68-69)** - Added pause/resume functionality, fixed TimeoutError crashes, skip on last track crash fix
+- **1.1 (Build 64-67)** - Remote URL playback with full `/shuffle` support
 - **1.02 (Build 59-63)** - Added `/playurl` command, fixed apostrophe parsing, `/shuffle` remote URL support
 - **1.01 (Build 58)** - Added `/shuffle` and `/end` commands, queue control bugfixes
 - **1.0 (Build 57)** - STABLE RELEASE - Optimized Lavalink with HIGH quality settings
